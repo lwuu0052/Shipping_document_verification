@@ -114,30 +114,18 @@ def _sanitize_json_text(text: str) -> str:
 
 
 def _coerce_fields(parsed: Any) -> dict:
-    """Validate the parsed object and normalize trivial shape issues.
+    """Keep only the required comparison fields."""
 
-    - Must be a JSON object (dict). Anything else -> error.
-    - Filter to known fields; ignore extras the model invented.
-    - Force ``container_no`` to a list. Anything that isn't a list gets
-      wrapped (scalar -> [scalar]) or replaced with [] (None / missing).
-    """
     if not isinstance(parsed, dict):
         raise ExtractionError(
-            detail=f"expected a JSON object, got {type(parsed).__name__}")
+            detail=f"expected a JSON object, got {type(parsed).__name__}"
+        )
 
     out = empty_fields()
-    out.update({k: parsed.get(k) for k in FIELDS if k in parsed})
 
-    # Container must be a list[str]. Coerce gently.
-    cn = out.get("container_no")
-    if cn is None:
-        out["container_no"] = []
-    elif isinstance(cn, str):
-        out["container_no"] = [cn]
-    elif isinstance(cn, list):
-        out["container_no"] = [str(x) for x in cn if x not in (None, "")]
-    else:
-        out["container_no"] = []
+    for field in FIELDS:
+        out[field] = parsed.get(field)
+
     return out
 
 
@@ -157,77 +145,50 @@ def parse_llm_response(raw_text: str) -> dict:
 # ---------------------------------------------------------------------------
 # Backend selection
 # ---------------------------------------------------------------------------
-
 def _call_via_factory(doc_text: str, doc_type: str) -> str:
-    """Invoke the project LLM via :func:`llm_factory.get_llm`.
+    """Call Gemini through the shared llm_factory."""
 
-    Per the agreed contract, ``get_llm()`` returns a ``genai.Client`` for the
-    Gemini provider. We call its native ``client.models.generate_content``
-    with the schema-locked prompt and force a JSON-object response
-    (``response_mime_type``) so the model can't wrap output in markdown
-    fences. The fence-stripping in :func:`parse_llm_response` stays as a
-    defensive fallback.
-
-    This module deliberately does NOT touch a provider SDK directly — adding
-    a provider or changing the key only touches :mod:`llm_factory` / ``.env``.
-    """
     try:
         from llm_factory import get_llm
     except ImportError as e:
         raise ExtractionError(
-            detail="llm_factory not importable; check PYTHONPATH / cwd") from e
+            detail="llm_factory not importable"
+        ) from e
 
     try:
-        client = get_llm()
-    except ValueError as e:
-        raise ExtractionError(detail=f"LLM factory init failed: {e}") from e
+        client = get_llm(
+            model_name=MODEL_NAME,
+            temperature=0.0
+        )
     except Exception as e:
         raise ExtractionError(
-            detail=f"LLM factory init failed (unexpected): {e}") from e
-
-    log.info("llm.call doc_type=%s provider=%s model=%s",
-             doc_type, os.environ.get("LLM_PROVIDER", "?"), MODEL_NAME)
+            detail=f"LLM factory init failed: {e}"
+        ) from e
 
     try:
-        resp = client.models.generate_content(
+        response = client.models.generate_content(
             model=MODEL_NAME,
             contents=user_prompt(doc_text, doc_type),
             config={
                 "system_instruction": SYSTEM_PROMPT,
                 "max_output_tokens": MAX_TOKENS,
                 "response_mime_type": "application/json",
-                "temperature": 0.0,  # extraction must be deterministic
+                "temperature": 0.0,
             },
         )
-    except Exception as e:
-        raise ExtractionError(detail=f"LLM call failed: {e}") from e
 
-    # `resp.text` raises on multi-part / empty content; walk the
-    # candidates/parts manually as a fallback.
-    try:
-        raw = resp.text
-    except Exception:
-        parts: list[str] = []
-        for cand in getattr(resp, "candidates", []) or []:
-            content = getattr(cand, "content", None)
-            for part in getattr(content, "parts", []) or []:
-                text = getattr(part, "text", None)
-                if text:
-                    parts.append(text)
-        raw = "".join(parts).strip()
+        raw = response.text
+
+    except Exception as e:
+        raise ExtractionError(
+            detail=f"LLM call failed: {e}"
+        ) from e
 
     if not raw:
-        raise ExtractionError(detail="LLM returned empty content")
-
-    # Log token usage (Section 7.5 — recommended for cost estimation).
-    usage = getattr(resp, "usage_metadata", None)
-    if usage is not None:
-        log.info(
-            "llm.tokens doc_type=%s model=%s in=%s out=%s",
-            doc_type, MODEL_NAME,
-            getattr(usage, "prompt_token_count", "?"),
-            getattr(usage, "candidates_token_count", "?"),
+        raise ExtractionError(
+            detail="LLM returned empty content"
         )
+
     return raw
 
 

@@ -106,11 +106,11 @@ def normalize_weight(raw: str | None) -> float | None:
 
 
 def normalize_count(raw: str | None) -> int | None:
-    """Extract the integer package count, discarding the unit word.
+    """Extract container count.
 
-    `880 CARTONS` -> `880`. `1 x 40'HC` is *containers*, not packages — but
-    since the LLM is told to fill package_count with the *package* count, we
-    just take the leading integer. Unparseable -> None.
+    Examples:
+    "3 x 20'GP" -> 3
+    "1 x 40'HC" -> 1
     """
     if raw is None:
         return None
@@ -189,12 +189,13 @@ def normalize_container(raw: Any | None) -> list[str]:
 
 # Per-field dispatch table. Fields not listed default to a "clean string" pass.
 _FIELD_NORMALIZERS: dict[str, Any] = {
-    "gross_weight_kg": normalize_weight,
-    "package_count": normalize_count,
+    "shipper": normalize_company,
     "consignee": normalize_company,
+    "notify_party": normalize_company,
     "port_of_loading": normalize_port,
     "port_of_discharge": normalize_port,
-    "container_no": normalize_container,
+    "container_count": normalize_count,
+    "gross_weight_kg": normalize_weight,
 }
 
 
