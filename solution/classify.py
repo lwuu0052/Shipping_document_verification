@@ -20,10 +20,6 @@ load_dotenv()
 
 # ============================================================
 # Schema specification for LLM structured output
-# The LLM only retrun :
-#     - 5 categories
-#     - confidence
-#     - reasoning
 # ============================================================
 class EmailClassificationResult(BaseModel):
     category: Literal[
@@ -108,8 +104,6 @@ def classify_email(email: dict):
         "spam": CATEGORY_SPAM,
     }
     final_category = category_map.get(predicted_category, CATEGORY_GENERAL)
-
-
     return {
         "email_id": email.get("id") or email.get("email_id"),
         "category": final_category,
