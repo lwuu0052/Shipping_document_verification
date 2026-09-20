@@ -43,8 +43,14 @@ log = logging.getLogger(__name__)
 # Model name passed to generate_content(). The factory returns a genai.Client
 # without a bound model, so we supply it here. Override via LLM_MODEL.
 MODEL_NAME = os.environ.get("LLM_MODEL", "gemini-3.6-flash")
-MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "2048"))
+MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "4096"))
+# Base delay between retries. Multiplied by 2^(attempt-1) for transient errors.
 RETRY_DELAY_SECONDS = float(os.environ.get("LLM_RETRY_DELAY", "1.5"))
+# Hard cap on backoff so a long overload doesn't translate to minutes of waiting.
+RETRY_DELAY_MAX_SECONDS = float(os.environ.get("LLM_RETRY_DELAY_MAX", "15.0"))
+# Additional retries (beyond the first one) reserved for transient errors
+# (429 / 503 / network). Semantic errors (bad JSON) still only get 1 retry.
+MAX_TRANSIENT_RETRIES = int(os.environ.get("LLM_MAX_TRANSIENT_RETRIES", "4"))
 
 # Strip ```json ... ``` or ``` ... ``` fences, plus leading "Here is..."
 # prefixes that some models emit despite instructions not to.
@@ -269,21 +275,60 @@ def extract_fields(doc_text: str, doc_type: str) -> dict:
     if not doc_text or not doc_text.strip():
         raise ExtractionError(detail=f"empty document text for {doc_type}")
 
+    # Retry policy (Section 4 Step 3 says "retry once"). We split failures
+    # into two classes:
+    #   - Transient (HTTP 429 / 503 / network) → retry up to
+    #     MAX_TRANSIENT_RETRIES times with exponential backoff. These are
+    #     the model's fault (rate limit / overload), not the prompt's; giving
+    #     up after one retry would be a self-inflicted outage.
+    #   - Semantic (bad JSON, schema violation) → still retry once, because
+    #     a re-roll usually produces valid JSON. More retries won't help
+    #     a prompt that's fundamentally wrong.
     last_error: Exception | None = None
-    for attempt in (1, 2):
+    attempt = 0
+    max_attempts = MAX_TRANSIENT_RETRIES + 1
+    while attempt < max_attempts:
+        attempt += 1
         try:
             raw = _dispatch_call(doc_text, doc_type)
             return parse_llm_response(raw)
         except ExtractionError as e:
             last_error = e
+            transient = _is_transient_error(e.detail)
             log.warning(
-                "llm.extract attempt=%d doc_type=%s failed: %s",
-                attempt, doc_type, e.detail,
+                "llm.extract attempt=%d doc_type=%s transient=%s failed: %s",
+                attempt, doc_type, transient, e.detail,
             )
-            if attempt == 1:
+            if attempt >= max_attempts:
+                break
+            if transient:
+                # Exponential backoff: 1x, 2x, 4x, ... capped.
+                delay = min(
+                    RETRY_DELAY_SECONDS * (2 ** (attempt - 1)),
+                    RETRY_DELAY_MAX_SECONDS,
+                )
+                log.info("llm.extract backing off %.1fs", delay)
+                time.sleep(delay)
+            elif attempt == 1:
+                # Semantic failure — one quick retry only, per the spec.
                 time.sleep(RETRY_DELAY_SECONDS)
+            else:
+                break
 
     raise ExtractionError(
-        detail=f"extraction failed after retry for {doc_type}: "
+        detail=f"extraction failed after {attempt} attempt(s) for {doc_type}: "
                f"{last_error.detail if last_error else 'unknown'}"
     ) from last_error
+
+
+def _is_transient_error(detail: str | None) -> bool:
+    """True if the error looks like a temporary network/service condition
+    worth retrying with backoff (429, 503, gateway, overload, timeout).
+    """
+    if not detail:
+        return False
+    d = detail.lower()
+    return any(s in d for s in (
+        "429", "503", "service unavailable", "overload", "high demand",
+        "gateway", "timeout", "temporarily", "rate limit",
+    ))
