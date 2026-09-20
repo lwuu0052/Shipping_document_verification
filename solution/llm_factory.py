@@ -7,35 +7,35 @@ load_dotenv()
 
 
 def get_llm(model_name: str, temperature: float):
-    """
-    Unified LangChain LLM Factory function.
-    Mandatory parameters: model_name and temperature must be provided explicitly.
+  """Unified LangChain LLM Factory function.
 
-    Usage:
-        llm = get_llm(model_name="gpt-4o-mini", temperature=0)
-    """
-    provider = os.getenv("LLM_PROVIDER", "openai").strip().lower()
+  Mandatory parameters: model_name and temperature must be provided explicitly.
 
-    if provider == "gemini":
-        from langchain_google_genai import ChatGoogleGenerativeAI
+  Usage:
+      llm = get_llm(model_name="gpt-4o-mini", temperature=0)
+  """
+  provider = os.getenv("LLM_PROVIDER", "openai").strip().lower()
 
-        gemini_key = os.getenv("GEMINI_API_KEY")
-        if not gemini_key:
-            raise ValueError("GEMINI_API_KEY is not set in .env")
+  if provider == "gemini":
+    from langchain_google_genai import ChatGoogleGenerativeAI
 
-        return ChatGoogleGenerativeAI(
-            model=model_name,
-            temperature=temperature,
-            google_api_key=gemini_key,
-        )
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_key:
+      raise ValueError("GEMINI_API_KEY is not set in your .env file.")
 
-    else:  # Default OpenAI
-      from langchain_openai import ChatOpenAI
+    return ChatGoogleGenerativeAI(
+        model=model_name,
+        temperature=temperature,
+        google_api_key=gemini_key,
+    )
 
-      if not os.getenv("OPENAI_API_KEY"):
-        raise ValueError("OPENAI_API_KEY is not set in your .env file.")
+  else:  # Default OpenAI
+    from langchain_openai import ChatOpenAI
 
-      return ChatOpenAI(
-          model=model_name,
-          temperature=temperature,
-      )
+    if not os.getenv("OPENAI_API_KEY"):
+      raise ValueError("OPENAI_API_KEY is not set in your .env file.")
+
+    return ChatOpenAI(
+        model=model_name,
+        temperature=temperature,
+    )
