@@ -112,29 +112,29 @@ def classify_email(email: dict):
     }
 
 
-if __name__ == "__main__":
-    import os
-    import sys
+# if __name__ == "__main__":
+#     import os
+#     import sys
 
-    sys.path.insert(
-      0,
-      os.path.abspath(
-          os.path.join(os.path.dirname(__file__), "..", "sdoc-hackathon-bundle")
-      ),
-    )
+#     sys.path.insert(
+#       0,
+#       os.path.abspath(
+#           os.path.join(os.path.dirname(__file__), "..", "sdoc-hackathon-bundle")
+#       ),
+#     )
 
-    from loader import Inbox
+#     from loader import Inbox
 
-    bundle_path = os.path.abspath(
-      os.path.join(os.path.dirname(__file__), "..", "sdoc-hackathon-bundle")
-    )
-    inbox = Inbox(bundle_path)
-    print(f"Total emails: {len(inbox.emails())}\n")
+#     bundle_path = os.path.abspath(
+#       os.path.join(os.path.dirname(__file__), "..", "sdoc-hackathon-bundle")
+#     )
+#     inbox = Inbox(bundle_path)
+#     print(f"Total emails: {len(inbox.emails())}\n")
 
 
-    for email in list(inbox)[:5]:
-      res = classify_email(email)
-      print(
-        f"[{res['email_id']}] Category: {res['category']} | Process:"
-        f" {res['should_process']}"
-    )
+#     for email in list(inbox)[:5]:
+#       res = classify_email(email)
+#       print(
+#         f"[{res['email_id']}] Category: {res['category']} | Process:"
+#         f" {res['should_process']}"
+#     )
