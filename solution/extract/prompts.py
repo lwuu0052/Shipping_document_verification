@@ -22,17 +22,13 @@ from .schema import FIELDS
 # A schema description embedded verbatim in the prompt. Kept in sync with
 # schema.FIELDS by construction; do not hand-edit.
 _FIELD_SCHEMA = """{
-  "booking_no":          string | null,   // booking ref / OC number, e.g. "5RSG-00133"
-  "bl_no":                string | null,   // bill of lading number, e.g. "MEDUUD104332"
-  "consignee":            string | null,   // consignee name exactly as printed
-  "vessel":               string | null,   // vessel name
-  "voyage":               string | voyage number as printed
-  "port_of_loading":      string | null,   // load port, keep UN/LOCODE if present
-  "port_of_discharge":    string | null,   // discharge port, keep UN/LOCODE if present
-  "container_no":          string[],       // list of container numbers in source order; [] if none
-  "description_of_goods":  string | null,   // commodity description
-  "package_count":        string | null,   // numeric package count as it appears, e.g. "880 CARTONS"
-  "gross_weight_kg":      string | null    // gross weight with unit as it appears, e.g. "21,577 KG"
+  "shipper":             string | null,
+  "consignee":           string | null,
+  "notify_party":        string | null,
+  "port_of_loading":     string | null,
+  "port_of_discharge":   string | null,
+  "container_count":     string | null,
+  "gross_weight_kg":     string | null
 }"""
 
 
@@ -58,12 +54,10 @@ HARD RULES — violating any of these breaks the pipeline:
 5. Copy strings verbatim from the document, including any UN/LOCODE and
    the original unit (kg / mt / ton). Do not convert units, do not
    translate, do not normalize casing — normalization happens downstream.
-6. `container_no` is always a JSON array. If the document lists one
-   container, return an array of length 1. If none is shown, return [].
-7. For `package_count` and `gross_weight_kg`, return the source string
-   verbatim (e.g. "880 CARTONS", "21,577 KG", "138.000 MT") — the
-   downstream normalizer will parse numbers and convert units. Returning
-   a pre-converted number here loses information about how it was written.
+6. For `container_count`, return the value as written, for example:
+   "1 x 40'HC" or "3 x 20'GP".
+7. For `gross_weight_kg`, return the source string verbatim,
+   for example "21,577 KG" or "138.000 MT".
 
 SCHEMA:
 
@@ -78,18 +72,18 @@ def user_prompt(doc_text: str, doc_type: str) -> str:
     ``doc_type`` is 'SI' or 'BL' — passed in so we can tailor the hint
     about what the model is looking at, without combining two documents.
     """
-    doc_type = doc_type.upper()
     if doc_type == "SI":
         kind_hint = (
             "This is a SHIPPING INSTRUCTION (SI). Look for headers such as "
-            "'Shipping Instruction', 'Shipper/Exporter', 'OC No.', "
-            "'Booking Ref', 'Voy. No.'."
+            "'Shipper', 'Consignee', 'Notify Party', 'Port of Loading', "
+            "'Port of Discharge', 'No. of Containers', 'Gross Weight'."
         )
+
     elif doc_type == "BL":
         kind_hint = (
-            "This is a BILL OF LADING (BL), likely a draft. Look for headers "
-            "such as 'Bill of Lading', 'B/L No.', 'Shipped on Board', "
-            "'Consignee', 'Notify'."
+            "This is a BILL OF LADING (BL). Look for headers such as "
+            "'Shipper', 'Consignee', 'Notify Party', 'Port of Loading', "
+            "'Port of Discharge', 'Container Count', 'Gross Weight'."
         )
     else:
         kind_hint = (
