@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>JiaBao — Inbox</title>
+    <link rel="stylesheet" href="/inbox.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button
+        class="icon-button menu-button"
+        id="menu-toggle"
+        aria-label="Toggle navigation"
+      >
+        ☰</button
+      ><a class="brand" href="/" aria-label="HarborCheck home"
+        ><span class="brand-icon">J</span
+        ><span>JiaBao<span class="brand-dot">.</span></span></a
+      >
+      <div class="search-wrap">
+        <span class="search-icon">⌕</span
+        ><input
+          id="search"
+          aria-label="Search inbox"
+          placeholder="Search emails, shipments, or senders"
+        /><span class="search-hint">INBOX</span>
+      </div>
+      <span class="online" id="connection">Connecting</span
+      ><button
+        class="icon-button"
+        id="settings-open"
+        aria-label="Processing settings"
+      >
+        ⚙
+      </button>
+      <div class="avatar" title="Operations workspace">OP</div>
+    </header>
+    <div class="app-layout">
+      <aside class="sidebar" id="sidebar">
+        <button class="process-button" id="process-all">
+          <span>✦</span> Verify documents
+        </button>
+        <p class="nav-heading">WORKSPACE</p>
+        <nav aria-label="Mailbox folders">
+          <button class="nav-item active" data-folder="all">
+            <span class="nav-symbol">▣</span> Inbox
+            <b id="count-all">—</b></button
+          ><button class="nav-item" data-folder="starred">
+            <span class="nav-symbol">☆</span> Starred
+            <b id="count-starred">0</b></button
+          ><button class="nav-item" data-folder="review">
+            <span class="nav-symbol">◷</span> Needs review
+            <b id="count-review">—</b></button
+          ><button class="nav-item" data-folder="mismatch">
+            <span class="nav-symbol">⚑</span> Discrepancies
+            <b id="count-mismatch">—</b></button
+          ><button class="nav-item" data-folder="verified">
+            <span class="nav-symbol">✓</span> Verified matches
+            <b id="count-verified">—</b>
+          </button>
+        </nav>
+        <div class="sidebar-divider"></div>
+        <p class="nav-heading">EMAIL CATEGORIES</p>
+        <nav class="labels" aria-label="Email categories">
+          <button class="nav-item" data-folder="BL_COMPARISON">
+            <i class="dot blue"></i> Document checks</button
+          ><button class="nav-item" data-folder="SI_REQUEST">
+            <i class="dot purple"></i> Shipping instructions</button
+          ><button class="nav-item" data-folder="INVOICE_QUERY">
+            <i class="dot orange"></i> Invoice queries</button
+          ><button class="nav-item" data-folder="GENERAL">
+            <i class="dot gray"></i> General</button
+          ><button class="nav-item" data-folder="SPAM">
+            <i class="dot red"></i> Spam
+          </button>
+        </nav>
+        <div class="sidebar-bottom">
+          <span class="small-logo">J</span>
+          <div>
+            <strong>Your operations, in order.</strong>
+            <p>From inbox to verified shipment.</p>
+          </div>
+        </div>
+      </aside>
+      <main class="main">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">SHIPPING OPERATIONS</p>
+            <h1 id="folder-title">Inbox</h1>
+            <p id="folder-description">A clearer view of every shipment.</p>
+          </div>
+          <div class="heading-actions">
+            <span class="mode-chip" id="mode-label">Offline baseline</span
+            ><button class="outline-button" id="export">
+              ↓ Export results
+            </button>
+          </div>
+        </div>
+        <section class="summary" aria-label="Inbox overview">
+          <div class="summary-card">
+            <span class="metric-icon blue-soft">▤</span>
+            <div>
+              <p>Emails processed</p>
+              <strong id="metric-processed">—</strong
+              ><small id="metric-total"></small>
+            </div>
+          </div>
+          <div class="summary-card">
+            <span class="metric-icon green-soft">✓</span>
+            <div>
+              <p>Verified matches</p>
+              <strong id="metric-verified">—</strong
+              ><small>All seven fields agree</small>
+            </div>
+          </div>
+          <div class="summary-card">
+            <span class="metric-icon orange-soft">⚑</span>
+            <div>
+              <p>Discrepancies</p>
+              <strong id="metric-mismatch">—</strong
+              ><small>Shipment details differ</small>
+            </div>
+          </div>
+          <div class="summary-card">
+            <span class="metric-icon purple-soft">◷</span>
+            <div>
+              <p>Needs your attention</p>
+              <strong id="metric-review">—</strong
+              ><small>Human review requested</small>
+            </div>
+          </div>
+        </section>
+        <div class="mode-notice">
+          <span>ⓘ</span
+          ><span id="mode-notice"
+            >Offline results use rules, not AI. Review exceptions before relying
+            on a report.</span
+          ><button id="configure">Configure AI →</button>
+        </div>
+        <div id="toast" role="status" aria-live="polite"></div>
+        <section class="mailbox">
+          <div class="mail-tabs" role="tablist" aria-label="Inbox view">
+            <button
+              class="mail-tab active"
+              id="tab-all"
+              role="tab"
+              aria-selected="true"
+            >
+              ▣ <span>All messages</span></button
+            ><button
+              class="mail-tab"
+              id="tab-action"
+              role="tab"
+              aria-selected="false"
+            >
+              ⚑ <span>Action required</span><b id="action-count">0</b></button
+            ><span class="mailbox-caption">SI → BL verification</span>
+          </div>
+          <div class="mail-toolbar">
+            <label class="check-label"
+              ><input
+                type="checkbox"
+                id="select-all"
+                aria-label="Select all messages on this page" /></label
+            ><button
+              class="icon-button"
+              id="refresh"
+              aria-label="Refresh inbox"
+            >
+              ↻</button
+            ><button class="text-button" id="process-selected" disabled>
+              Verify selected</button
+            ><span id="job-progress" role="status"></span>
+            <div class="pagination">
+              <span id="page-info">0 messages</span
+              ><button
+                class="icon-button"
+                id="prev-page"
+                aria-label="Previous page"
+              >
+                ‹</button
+              ><button
+                class="icon-button"
+                id="next-page"
+                aria-label="Next page"
+              >
+                ›
+              </button>
+            </div>
+          </div>
+          <div id="mail-list" class="mail-list">
+            <div class="empty-state">Loading your inbox…</div>
+          </div>
+          <div class="mail-footer">
+            <span
+              ><i class="dot green"></i> Connected to your supplied
+              dataset</span
+            ><span>Evidence first. Every decision traceable.</span>
+          </div>
+        </section>
+        <p class="workspace-note">
+          Your SI is the reference. Missing or uncertain details are sent for
+          review.
+        </p>
+      </main>
+    </div>
+    <dialog id="reader" class="reader">
+      <div class="reader-toolbar">
+        <button class="icon-button" id="reader-close" aria-label="Close email">
+          ←</button
+        ><span id="reader-id"></span><span class="reader-toolbar-spacer"></span
+        ><button class="outline-button" id="retry">↻ Reprocess</button>
+      </div>
+      <div id="reader-content" class="reader-content"></div>
+    </dialog>
+    <dialog id="settings" class="settings">
+      <form method="dialog">
+        <div class="dialog-heading">
+          <h2>Processing settings</h2>
+          <button class="icon-button" aria-label="Close settings">×</button>
+        </div>
+        <p>Choose how to classify emails and read documents.</p>
+        <label
+          >Processing mode<select id="mode">
+            <option value="offline">Offline baseline — no API calls</option>
+            <option value="cloud">Cloud AI — uses your API credits</option>
+          </select></label
+        ><label
+          >Admin token<input
+            id="token"
+            type="password"
+            autocomplete="off"
+            placeholder="Token printed in your server terminal"
+        /></label>
+        <p class="settings-note" id="cloud-status">
+          Checking cloud configuration…
+        </p>
+        <p class="settings-note">
+          The token permits processing and review changes. It is not your AI API
+          key and stays in this page only.
+        </p>
+        <button class="primary-button">Done</button>
+      </form>
+    </dialog>
+    <script src="/inbox.js"></script>
+  </body>
+</html>
