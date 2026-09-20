@@ -3,10 +3,9 @@ import warnings
 from typing import Literal
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 warnings.filterwarnings("ignore")
 from langchain_core.prompts import ChatPromptTemplate
-from llm_factory import get_llm
+from langchain_openai import ChatOpenAI
 
 from constants import (
     CATEGORY_BL_COMPARISON,
@@ -33,10 +32,10 @@ class EmailClassificationResult(BaseModel):
     reasoning: str = Field(description="Brief explanation of why this category was chosen based on email context.")
 
 
-base_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-structured_classifier = base_llm.with_structured_output(
-    EmailClassificationResult
-)
+base_llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0,)
+structured_classifier = base_llm.with_structured_output(EmailClassificationResult)
 
 # ============================================================
 # Prompt for classifying emails
@@ -113,29 +112,29 @@ def classify_email(email: dict):
     }
 
 
-if __name__ == "__main__":
-    import os
-    import sys
+# if __name__ == "__main__":
+#     import os
+#     import sys
 
-    sys.path.insert(
-      0,
-      os.path.abspath(
-          os.path.join(os.path.dirname(__file__), "..", "sdoc-hackathon-bundle")
-      ),
-    )
+#     sys.path.insert(
+#       0,
+#       os.path.abspath(
+#           os.path.join(os.path.dirname(__file__), "..", "sdoc-hackathon-bundle")
+#       ),
+#     )
 
-    from loader import Inbox
+#     from loader import Inbox
 
-    bundle_path = os.path.abspath(
-      os.path.join(os.path.dirname(__file__), "..", "sdoc-hackathon-bundle")
-    )
-    inbox = Inbox(bundle_path)
-    print(f"Total emails: {len(inbox.emails())}\n")
+#     bundle_path = os.path.abspath(
+#       os.path.join(os.path.dirname(__file__), "..", "sdoc-hackathon-bundle")
+#     )
+#     inbox = Inbox(bundle_path)
+#     print(f"Total emails: {len(inbox.emails())}\n")
 
 
-    for email in list(inbox)[:5]:
-      res = classify_email(email)
-      print(
-        f"[{res['email_id']}] Category: {res['category']} | Process:"
-        f" {res['should_process']}"
-    )
+#     for email in list(inbox)[:5]:
+#       res = classify_email(email)
+#       print(
+#         f"[{res['email_id']}] Category: {res['category']} | Process:"
+#         f" {res['should_process']}"
+#     )
