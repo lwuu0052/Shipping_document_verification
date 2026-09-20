@@ -3,10 +3,9 @@ import warnings
 from typing import Literal
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 warnings.filterwarnings("ignore")
 from langchain_core.prompts import ChatPromptTemplate
-from llm_factory import get_llm
+from langchain_openai import ChatOpenAI
 
 from constants import (
     CATEGORY_BL_COMPARISON,
@@ -37,10 +36,10 @@ class EmailClassificationResult(BaseModel):
     reasoning: str = Field(description="Brief explanation of why this category was chosen based on email context.")
 
 
-base_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-structured_classifier = base_llm.with_structured_output(
-    EmailClassificationResult
-)
+base_llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0,)
+structured_classifier = base_llm.with_structured_output(EmailClassificationResult)
 
 # ============================================================
 # Prompt for classifying emails
