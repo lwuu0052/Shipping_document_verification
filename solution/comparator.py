@@ -118,10 +118,10 @@ def compare_documents(si, bl):
         return {
             "status": "NEEDS_REVIEW",
             "review_reason": "missing_value",
-            "has_defect": False,
-            "defect_fields": [],
+            "has_defect": bool(defect_fields),
+            "defect_fields": defect_fields,
             "missing_fields": missing_fields,
-            "differences": {},
+            "differences": differences,
         }
 
     # At least one real mismatch
