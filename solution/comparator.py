@@ -1,3 +1,10 @@
+"""
+Receives extracted SI and BL data, normalizes the values, compares
+the 7 required shipment fields, and return either OK , MISMATCH , 
+or NEEDS_REVIEW. Moreover it also lists mismatched and missing field.
+"""
+
+
 # The 7 fields required by the hackathon
 FIELDS = [
     "shipper",
@@ -12,12 +19,9 @@ FIELDS = [
 
 def normalize_text(value):
     """
-    Make text easier to compare.
-
-    Example:
-    " PORT KLANG " -> "port klang"
-    "Port Klang"   -> "port klang"
+    Clean text so capitalization and extra spaces do not cause false mismatches.
     """
+    
 
     if value is None:
         return None
@@ -33,12 +37,7 @@ def normalize_text(value):
 
 def normalize_number(value):
     """
-    Make numbers easier to compare.
-
-    Examples:
-    "22,000"    -> 22000
-    "22000"     -> 22000
-    22000       -> 22000
+    Convert numeric values like '22,000' and 22000 into the same format
     """
 
     if value is None:
@@ -63,7 +62,7 @@ def normalize_number(value):
 
 def normalize_value(field, value):
     """
-    Decide how each field should be normalized.
+    Use text or numeric normalization depending on the field.
     """
 
     if field in ["container_count", "gross_weight_kg"]:
@@ -74,12 +73,12 @@ def normalize_value(field, value):
 
 def compare_documents(si, bl):
     """
-    Compare extracted SI data against extracted BL data.
+    Compare the 7 required SI and BL fields.
 
     Returns:
-        OK
-        MISMATCH
-        NEEDS_REVIEW
+    - OK: all fields match
+    - MISMATCH: one or more fields differ
+    - NEEDS_REVIEW: a required value is missing/unusable
     """
 
     defect_fields = []
