@@ -98,7 +98,7 @@ def get_classification_chain():
 # Get the subject ,body and attachment names from the email
 def parse_email_metadata(email: dict):
     subject = email.get("subject") or ""
-    body = email.get("body") or ""
+    body = (email.get("body") or "")[:3000]
     raw_attachments = email.get("attachments") or []
     attachment_names = [str(att) for att in raw_attachments]
     return subject, body, attachment_names
@@ -108,34 +108,41 @@ def parse_email_metadata(email: dict):
 # Decision & category classification (Main function)
 # ============================================================
 def classify_email(email: dict):
-    subject, body, names = parse_email_metadata(email)
+  email_id = email.get("id") or email.get("email_id")
+  subject, body, names = parse_email_metadata(email)
 
-    # Step 1: Use LLM to classify the email
+  try:
     raw_output = get_classification_chain().invoke({
         "subject": subject,
         "body": body,
-        "attachments": ", ".join(names) if names else "None"
+        "attachments": ", ".join(names) if names else "None",
     })
-    
-    if isinstance(raw_output, EmailClassificationResult):
-        predicted_category = raw_output.category
-    elif isinstance(raw_output, dict):
-        predicted_category = raw_output.get("category", "general_message")
-    else:
-        data = raw_output.model_dump()
-        predicted_category = data.get("category", "general_message")
 
-    # Step 2: Map to official category constants
-    category_map = {
-        "document_comparison_request": CATEGORY_BL_COMPARISON,
-        "new_si_request": CATEGORY_SI_REQUEST,
-        "invoice_query": CATEGORY_INVOICE_QUERY,
-        "general_message": CATEGORY_GENERAL,
-        "spam": CATEGORY_SPAM,
-    }
-    final_category = category_map.get(predicted_category, CATEGORY_GENERAL)
+    if isinstance(raw_output, EmailClassificationResult):
+      predicted_category = raw_output.category
+    elif isinstance(raw_output, dict):
+      predicted_category = raw_output.get("category", CATEGORY_GENERAL)
+    else:
+      data = raw_output.model_dump()
+      predicted_category = data.get("category", CATEGORY_GENERAL)
+
+  except Exception:
     return {
-        "email_id": email.get("id") or email.get("email_id"),
-        "category": final_category,
-        "should_process": (final_category == CATEGORY_BL_COMPARISON),
+        "email_id": email_id,
+        "category": CATEGORY_GENERAL,
+        "should_process": False,
     }
+
+  CATEGORY_MAP = {
+      "document_comparison_request": CATEGORY_BL_COMPARISON,
+      "new_si_request":              CATEGORY_SI_REQUEST,
+      "invoice_query":               CATEGORY_INVOICE_QUERY,
+      "general_message":             CATEGORY_GENERAL,
+      "spam":                        CATEGORY_SPAM,}
+  final_category = CATEGORY_MAP.get(predicted_category, CATEGORY_GENERAL)
+
+  return {
+      "email_id": email_id,
+      "category": final_category,
+      "should_process": (final_category == CATEGORY_BL_COMPARISON),
+  }
