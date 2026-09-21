@@ -1,0 +1,197 @@
+[
+  {
+    "email_id": "email_001",
+    "category": "BL_COMPARISON",
+    "status": "OK",
+    "comparison": {
+      "status": "OK",
+      "review_reason": null,
+      "has_defect": false,
+      "defect_fields": [],
+      "missing_fields": [],
+      "differences": {}
+    },
+    "review_reason": null,
+    "missing_fields": [],
+    "differences": {}
+  },
+  {
+    "email_id": "email_002",
+    "category": "INVOICE_QUERY",
+    "status": "SKIPPED"
+  },
+  {
+    "email_id": "email_003",
+    "category": "BL_COMPARISON",
+    "status": "NEEDS_REVIEW",
+    "reason": "missing_attachment",
+    "review_reason": "missing_attachment",
+    "detail": "Classified as comparison request but attachments list is empty; subject references SI ['SIN525534192'] while body references SI ['SIN832764835'] — clarification needed",
+    "review_case": {
+      "email_id": "email_003",
+      "status": "PENDING_REVIEW",
+      "review_reason": "missing_attachment",
+      "subject": "RE_ TO CONFIRM DOCS _ 5AAT-03056 _ AQABA_JORDAN _ ROXCEL TRADING GMBH _ SIN525534192",
+      "sender": "exports@ifpla.com",
+      "detail": "Classified as comparison request but attachments list is empty; subject references SI ['SIN525534192'] while body references SI ['SIN832764835'] — clarification needed",
+      "si_data": null,
+      "bl_data": null,
+      "missing_fields": [],
+      "differences": {},
+      "defect_fields": []
+    }
+  },
+  {
+    "email_id": "email_004",
+    "category": "BL_COMPARISON",
+    "status": "MISMATCH",
+    "comparison": {
+      "status": "MISMATCH",
+      "review_reason": null,
+      "has_defect": true,
+      "defect_fields": [
+        "consignee",
+        "notify_party"
+      ],
+      "missing_fields": [],
+      "differences": {
+        "consignee": {
+          "si": "EAST BRIGHT FZ-LLC RAKEZ AMENITY CENTER; AL HAMRA INDUSTRIAL ZONE,RAK,UAE",
+          "bl": "TO THE ORDER OF: UAB NOVAKOPA RAKEZ AMENITY CENTER; AL HAMRA INDUSTRIAL ZONE,RAK,UAE"
+        },
+        "notify_party": {
+          "si": "EAST BRIGHT FZ-LLC",
+          "bl": "UAB NOVAKOPA"
+        }
+      }
+    },
+    "review_reason": null,
+    "missing_fields": [],
+    "differences": {
+      "consignee": {
+        "si": "EAST BRIGHT FZ-LLC RAKEZ AMENITY CENTER; AL HAMRA INDUSTRIAL ZONE,RAK,UAE",
+        "bl": "TO THE ORDER OF: UAB NOVAKOPA RAKEZ AMENITY CENTER; AL HAMRA INDUSTRIAL ZONE,RAK,UAE"
+      },
+      "notify_party": {
+        "si": "EAST BRIGHT FZ-LLC",
+        "bl": "UAB NOVAKOPA"
+      }
+    }
+  },
+  {
+    "email_id": "email_005",
+    "category": "BL_COMPARISON",
+    "status": "OK",
+    "comparison": {
+      "status": "OK",
+      "review_reason": null,
+      "has_defect": false,
+      "defect_fields": [],
+      "missing_fields": [],
+      "differences": {}
+    },
+    "review_reason": null,
+    "missing_fields": [],
+    "differences": {}
+  },
+  {
+    "email_id": "email_006",
+    "category": "SI_REQUEST",
+    "status": "SKIPPED"
+  },
+  {
+    "email_id": "email_007",
+    "category": "SI_REQUEST",
+    "status": "SKIPPED"
+  },
+  {
+    "email_id": "email_008",
+    "category": "SI_REQUEST",
+    "status": "SKIPPED"
+  },
+  {
+    "email_id": "email_009",
+    "category": "BL_COMPARISON",
+    "status": "OK",
+    "comparison": {
+      "status": "OK",
+      "review_reason": null,
+      "has_defect": false,
+      "defect_fields": [],
+      "missing_fields": [],
+      "differences": {}
+    },
+    "review_reason": null,
+    "missing_fields": [],
+    "differences": {}
+  },
+  {
+    "email_id": "email_010",
+    "category": "INVOICE_QUERY",
+    "status": "SKIPPED"
+  },
+  {
+    "email_id": "email_011",
+    "category": "BL_COMPARISON",
+    "status": "NEEDS_REVIEW",
+    "reason": "missing_attachment",
+    "review_reason": "missing_attachment",
+    "detail": "Classified as comparison request but attachments list is empty",
+    "review_case": {
+      "email_id": "email_011",
+      "status": "PENDING_REVIEW",
+      "review_reason": "missing_attachment",
+      "subject": "15_01_2026 - UPDATE SUMMARY LE HAVRE V.QI540A",
+      "sender": "noreply@aprilasia.com",
+      "detail": "Classified as comparison request but attachments list is empty",
+      "si_data": null,
+      "bl_data": null,
+      "missing_fields": [],
+      "differences": {},
+      "defect_fields": []
+    }
+  },
+  {
+    "email_id": "email_012",
+    "category": "GENERAL",
+    "status": "SKIPPED"
+  },
+  {
+    "email_id": "email_013",
+    "category": "BL_COMPARISON",
+    "status": "MISMATCH",
+    "comparison": {
+      "status": "MISMATCH",
+      "review_reason": null,
+      "has_defect": true,
+      "defect_fields": [
+        "port_of_discharge"
+      ],
+      "missing_fields": [],
+      "differences": {
+        "port_of_discharge": {
+          "si": "MOMBASA, KENYA (KEMBA)",
+          "bl": "TUTICORIN, INDIA (KEMBA)"
+        }
+      }
+    },
+    "review_reason": null,
+    "missing_fields": [],
+    "differences": {
+      "port_of_discharge": {
+        "si": "MOMBASA, KENYA (KEMBA)",
+        "bl": "TUTICORIN, INDIA (KEMBA)"
+      }
+    }
+  },
+  {
+    "email_id": "email_014",
+    "category": "SI_REQUEST",
+    "status": "SKIPPED"
+  },
+  {
+    "email_id": "email_015",
+    "category": "SPAM",
+    "status": "SKIPPED"
+  }
+]

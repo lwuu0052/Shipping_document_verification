@@ -1,4 +1,4 @@
-import os
+from functools import lru_cache
 import warnings
 from typing import Literal
 from pydantic import BaseModel, Field
@@ -32,11 +32,6 @@ class EmailClassificationResult(BaseModel):
     reasoning: str = Field(description="Brief explanation of why this category was chosen based on email context.")
 
 
-base_llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    temperature=0,)
-structured_classifier = base_llm.with_structured_output(EmailClassificationResult)
-
 # ============================================================
 # Prompt for classifying emails
 # ============================================================
@@ -60,7 +55,11 @@ CLASSIFICATION_PROMPT = ChatPromptTemplate.from_messages([
     )
 ])
 
-classification_chain = CLASSIFICATION_PROMPT | structured_classifier
+@lru_cache(maxsize=1)
+def get_classification_chain():
+    """Initialize the API client only when classification is requested."""
+    base_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    return CLASSIFICATION_PROMPT | base_llm.with_structured_output(EmailClassificationResult)
 
 
 # ============================================================
@@ -82,7 +81,7 @@ def classify_email(email: dict):
     subject, body, names = parse_email_metadata(email)
 
     # Step 1: Use LLM to classify the email
-    raw_output = classification_chain.invoke({
+    raw_output = get_classification_chain().invoke({
         "subject": subject,
         "body": body,
         "attachments": ", ".join(names) if names else "None"
@@ -113,7 +112,7 @@ def classify_email(email: dict):
 
 
 # if __name__ == "__main__":
-#     import os
+#     from functools import lru_cache
 #     import sys
 
 #     sys.path.insert(

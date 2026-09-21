@@ -5,6 +5,9 @@ or NEEDS_REVIEW. Moreover it also lists mismatched and missing field.
 """
 
 
+import math
+
+
 # The 7 fields required by the hackathon
 FIELDS = [
     "shipper",
@@ -43,8 +46,11 @@ def normalize_number(value):
     if value is None:
         return None
 
+    if isinstance(value, bool):
+        return None
+
     if isinstance(value, (int, float)):
-        return float(value)
+        return float(value) if math.isfinite(value) else None
 
     value = str(value).strip()
 
@@ -55,7 +61,8 @@ def normalize_number(value):
     value = value.replace(",", "")
 
     try:
-        return float(value)
+        number = float(value)
+        return number if math.isfinite(number) else None
     except ValueError:
         return None
 

@@ -82,7 +82,7 @@ def _strip_fence(text: str) -> str:
     so a well-formed JSON body survives. Anything more aggressive is the
     model's fault and bubbles up as :class:`ExtractionError`.
     """
-    text = text.strip()
+    text = _PREFIX_RE.sub("", text.strip()).strip()
     m = _FENCE_RE.match(text)
     if m:
         text = m.group("body").strip()
@@ -201,6 +201,8 @@ def _call_stub(doc_text: str, doc_type: str) -> str:
     if STUB_RESPONSE is None:
         raise ExtractionError(
             detail="LLM_BACKEND=stub but no STUB_RESPONSE registered")
+
+    assert callable(STUB_RESPONSE) 
     return STUB_RESPONSE(doc_text, doc_type)
 
 

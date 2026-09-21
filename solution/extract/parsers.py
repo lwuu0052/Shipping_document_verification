@@ -19,6 +19,7 @@ dependency only blows up when actually exercised — tests that don't touch
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from .schema import REASON_PARSE_ERROR, REASON_UNSUPPORTED_FORMAT
 
@@ -83,6 +84,7 @@ def _read_xlsx(path: Path) -> str:
                          f"failed to open workbook {path.name}: {e}") from e
 
     chunks: list[str] = []
+    total_rows = 0
     try:
         for sheet in wb.worksheets:
             sheet_title = sheet.title or "(unnamed sheet)"
@@ -95,6 +97,7 @@ def _read_xlsx(path: Path) -> str:
                 if any(cell.strip() for cell in cells):
                     chunks.append("\t".join(cells))
                     row_count += 1
+                    total_rows += 1
             if row_count == 0:
                 chunks.append("(empty sheet)")
             chunks.append("")  # blank line between sheets
@@ -106,8 +109,7 @@ def _read_xlsx(path: Path) -> str:
             pass
 
     text = "\n".join(chunks).strip()
-    if not text or text.startswith("=== SHEET:") and "(empty sheet)" in text \
-            and len(chunks) <= 4:
+    if total_rows == 0:
         # Workbook with no data rows at all — treat as a scanned/empty file.
         raise ParseError(REASON_PARSE_ERROR,
                          f"workbook {path.name} has no readable content")
@@ -147,7 +149,7 @@ def _read_pdf(path: Path) -> str:
 # Dispatch
 # ---------------------------------------------------------------------------
 
-_DISPATCH: dict[str, callable] = {
+_DISPATCH: dict[str, Callable[[Path], str]] = {
     ".txt": _read_txt,
     ".xlsx": _read_xlsx,
     ".xls": _read_xlsx,
@@ -171,4 +173,12 @@ def parse_to_text(path: str | Path) -> str:
     if not p.exists():
         raise ParseError(REASON_PARSE_ERROR,
                          f"attachment not found: {p}")
-    return reader(p)
+    try:
+        text = reader(p)
+    except ParseError:
+        raise
+    except Exception as exc:
+        raise ParseError(REASON_PARSE_ERROR, f"failed to read {p.name}: {exc}") from exc
+    if not text.strip():
+        raise ParseError(REASON_PARSE_ERROR, f"attachment {p.name} has no readable content")
+    return text

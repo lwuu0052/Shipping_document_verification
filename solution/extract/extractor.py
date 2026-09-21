@@ -92,7 +92,6 @@ def _conflict_detail(email: dict) -> str | None:
     si_pat = re.compile(r"\bSIN\d{6,}\b", re.IGNORECASE)
     subj_matches = set(m.group(0).upper() for m in si_pat.finditer(subject))
     body_matches = set(m.group(0).upper() for m in si_pat.finditer(body))
-    conflict = subj_matches & body_matches - (subj_matches & body_matches)
     # Numbers present in only one of subject/body -> potential conflict.
     only_subj = subj_matches - body_matches
     only_body = body_matches - subj_matches
