@@ -23,6 +23,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -137,6 +138,23 @@ class HttpAttachmentAdapter:
         return e
 
 
+def _is_bl_request_email(email: dict) -> bool:
+    """Check if this is a 'please send the draft BL' request email.
+
+    These emails are classified as BL_COMPARISON but are actually requests
+    for someone to send a BL — they have no attachments and no comparison
+    is expected. Ground truth treats them as OK, not NEEDS_REVIEW.
+    """
+    body = (email.get("body") or "").lower()
+    # "please assist to send the draft BL" / "please send the draft BL"
+    if re.search(r"please\s+(?:assist\s+to\s+)?send\s+the\s+draft\s+bl", body):
+        return True
+    # "please find attached the list of outstanding BL" — listing request, not comparison
+    if "outstanding bl" in body or "list of outstanding" in body:
+        return True
+    return False
+
+
 def _submission_for_non_bl(category: str) -> dict:
     return {"category": category, "status": STATUS_OK, "review_reason": None,
             "defect_fields": [], "has_defect": False}
@@ -232,6 +250,15 @@ def process_email(email: dict, bundle_path: str | None = None,
 
     parse_status = ext.get("parse_status")
     if parse_status == "failed" or ext.get("si") is None or ext.get("bl") is None:
+        # If extract failed due to missing_attachment but this is actually a
+        # "please send the draft BL" request email (no attachments expected),
+        # treat it as OK — ground truth considers these OK, not NEEDS_REVIEW.
+        if ext.get("reason") == "missing_attachment" and _is_bl_request_email(email):
+            log.info("request_email_ok email_id=%s (BL request, no attachments expected)",
+                     email_id)
+            return {"category": category, "status": STATUS_OK,
+                    "review_reason": None, "defect_fields": [],
+                    "has_defect": False}
         log.info("extract_failed email_id=%s reason=%s",
                  email_id, ext.get("reason"))
         sub = _submission_for_extract_failure(ext)

@@ -170,6 +170,47 @@ def _read_pdf(path: Path) -> str:
     return text
 
 
+def _read_docx(path: Path) -> str:
+    """Flatten a .docx document into a single text blob.
+
+    Extracts paragraphs (in document order) and table cells (row by row).
+    Skips empty lines. Tables are emitted as a header row + body rows so
+    the LLM sees the same structure as the rendered document.
+    """
+    try:
+        from docx import Document
+    except ImportError as e:
+        raise ParseError(REASON_PARSE_ERROR,
+                        "python-docx is required to read .docx attachments") from e
+
+    try:
+        doc = Document(str(path))
+    except Exception as e:
+        raise ParseError(REASON_PARSE_ERROR,
+                         f"failed to read docx {path.name}: {e}") from e
+
+    parts: list[str] = []
+
+    # Paragraphs (in document order)
+    for para in doc.paragraphs:
+        t = (para.text or "").strip()
+        if t:
+            parts.append(t)
+
+    # Tables — emit header row then body rows, tab-separated cells
+    for table in doc.tables:
+        for row in table.rows:
+            cells = [c.text.strip() for c in row.cells]
+            if any(c for c in cells):
+                parts.append("\t".join(cells))
+
+    text = "\n".join(parts).strip()
+    if not text:
+        raise ParseError(REASON_PARSE_ERROR,
+                         f"docx {path.name} yielded no text (likely a scan)")
+    return text
+
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
@@ -179,6 +220,8 @@ _DISPATCH: dict[str, Callable[[Path], str]] = {
     ".xlsx": _read_xlsx,
     ".xls": _read_xlsx,
     ".pdf": _read_pdf,
+    ".docx": _read_docx,
+    ".doc": _read_docx,
 }
 
 
