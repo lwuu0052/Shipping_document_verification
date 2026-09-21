@@ -26,6 +26,11 @@ def review_pending_cases():
         print(f"Missing fields: {review_case.get('missing_fields')}")
         print(f"Differences: {review_case.get('differences')}")
 
+        print("\nSource evidence:")
+        print(f"SI data: {review_case.get('si_data')}")
+        print(f"BL data: {review_case.get('bl_data')}")
+        print(f"Defect fields: {review_case.get('defect_fields')}")
+
         print("\nHuman action:")
         print("1. Confirm")
         print("2. Correct")
