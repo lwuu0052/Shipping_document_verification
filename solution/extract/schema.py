@@ -18,6 +18,9 @@ REASON_UNSUPPORTED_FORMAT = "unsupported_format"
 REASON_PARSE_ERROR = "parse_error"
 REASON_EXTRACTION_ERROR = "extraction_error"
 REASON_FIELD_NULL = "field_null"
+# Scanned PDF (no text layer). Orchestrator can fallback to multimodal LLM;
+# if that also fails, maps to parse_error for downstream.
+REASON_SCANNED_PDF = "scanned_pdf"
 
 ALL_REASONS: tuple[str, ...] = (
     REASON_MISSING_ATTACHMENT,
@@ -26,6 +29,7 @@ ALL_REASONS: tuple[str, ...] = (
     REASON_PARSE_ERROR,
     REASON_EXTRACTION_ERROR,
     REASON_FIELD_NULL,
+    REASON_SCANNED_PDF,
 )
 
 _REASON_STATUS: dict[str, str] = {
@@ -35,6 +39,9 @@ _REASON_STATUS: dict[str, str] = {
     REASON_PARSE_ERROR: "failed",
     REASON_EXTRACTION_ERROR: "failed",
     REASON_FIELD_NULL: "partial",
+    # Scanned PDF is terminal only if multimodal fallback also fails.
+    # The orchestrator overrides this when it catches ScannedPdfError.
+    REASON_SCANNED_PDF: "failed",
 }
 
 

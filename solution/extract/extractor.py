@@ -33,10 +33,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .llm_client import ExtractionError, extract_fields
+from .llm_client import ExtractionError, extract_fields, extract_fields_from_pdf
 from .normalize import find_missing, normalize
 from .pairing import pair_attachments
-from .parsers import ParseError, parse_to_text
+from .parsers import ParseError, ScannedPdfError, parse_to_text
 from .schema import (
     REASON_EXTRACTION_ERROR,
     REASON_FIELD_NULL,
@@ -64,15 +64,22 @@ def _failed(email: dict, reason: str, detail: str | None = None) -> dict:
     return empty_result(email, parse_status="failed", reason=reason, detail=detail)
 
 
-def _extract_one(doc_text: str, doc_type: str, email_id: str) -> tuple[dict, dict]:
+def _extract_one(doc_text: str, doc_type: str, email_id: str,
+                 pdf_path: str | None = None) -> tuple[dict, dict]:
     """Run Step 3 + Step 4 for one document.
 
     Returns ``(normalized_fields, raw_fields)``. On extraction failure raises
     :class:`ExtractionError` so the caller can produce a single `failed`
     result covering both SI and BL — partial half-extraction is misleading
     because Compare expects two sibling documents.
+
+    If ``pdf_path`` is provided (scanned PDF fallback), use the multimodal
+    extractor instead of the text one. The rest of the contract is identical.
     """
-    raw_fields = extract_fields(doc_text, doc_type)  # raises ExtractionError
+    if pdf_path is not None:
+        raw_fields = extract_fields_from_pdf(pdf_path, doc_type)
+    else:
+        raw_fields = extract_fields(doc_text, doc_type)  # raises ExtractionError
     normalized = normalize(raw_fields)
     return normalized, raw_fields
 
@@ -157,17 +164,36 @@ def extract(email: dict, classification: dict,
     # -----------------------------------------------------------------
     # Step 2 — Parse both to text. A failure on either side is terminal:
     # Compare needs both documents; one unreadable doc = needs_review.
+    #
+    # Exception: ScannedPdfError (PDF has no text layer) is not terminal —
+    # we fall back to the multimodal LLM extractor in Step 3, which reads
+    # the rendered page image directly. The fallback path is tracked
+    # separately so we can downgrade cleanly if Gemini can't read it either.
     # -----------------------------------------------------------------
+    si_pdf_path: str | None = None  # set if SI is a scanned PDF
     try:
         si_text = parse_to_text(Path(attachment_root) / si_path)
+    except ScannedPdfError as e:
+        # Defer to Step 3 multimodal path. Keep the absolute path so the
+        # extractor can re-open the file and render pages.
+        si_pdf_path = e.path
+        si_text = ""  # placeholder; the multimodal path ignores it
+        log.info("extract email_id=%s SI is scanned, using multimodal fallback",
+                 email_id)
     except ParseError as e:
         result = _failed(email, e.reason,
                          detail=f"SI parse failed: {e.detail} (file={si_path})")
         _log_done(email_id, result, start)
         return result
 
+    bl_pdf_path: str | None = None  # set if BL is a scanned PDF
     try:
         bl_text = parse_to_text(Path(attachment_root) / bl_path)
+    except ScannedPdfError as e:
+        bl_pdf_path = e.path
+        bl_text = ""
+        log.info("extract email_id=%s BL is scanned, using multimodal fallback",
+                 email_id)
     except ParseError as e:
         result = _failed(email, e.reason,
                          detail=f"BL parse failed: {e.detail} (file={bl_path})")
@@ -177,20 +203,30 @@ def extract(email: dict, classification: dict,
     # -----------------------------------------------------------------
     # Step 3 — LLM extract, two separate calls. SI first, BL second.
     # A failure on either is terminal for the same reason as Step 2.
+    # If a document was scanned, route to the multimodal extractor.
     # -----------------------------------------------------------------
     try:
-        si_norm, si_raw = _extract_one(si_text, "SI", email_id)
+        si_norm, si_raw = _extract_one(si_text, "SI", email_id,
+                                      pdf_path=si_pdf_path)
     except ExtractionError as e:
-        result = _failed(email, REASON_EXTRACTION_ERROR,
-                         detail=f"SI extraction failed: {e.detail}")
+        # Multimodal fallback failure maps to parse_error, not extraction_error,
+        # because the root cause is the source document being a scan — Gemini
+        # not reading it is a parse failure, not an LLM call failure.
+        reason = REASON_PARSE_ERROR if si_pdf_path else REASON_EXTRACTION_ERROR
+        detail = (f"SI {'multimodal ' if si_pdf_path else ''}extraction "
+                  f"failed: {e.detail}")
+        result = _failed(email, reason, detail=detail)
         _log_done(email_id, result, start)
         return result
 
     try:
-        bl_norm, bl_raw = _extract_one(bl_text, "BL", email_id)
+        bl_norm, bl_raw = _extract_one(bl_text, "BL", email_id,
+                                       pdf_path=bl_pdf_path)
     except ExtractionError as e:
-        result = _failed(email, REASON_EXTRACTION_ERROR,
-                         detail=f"BL extraction failed: {e.detail}")
+        reason = REASON_PARSE_ERROR if bl_pdf_path else REASON_EXTRACTION_ERROR
+        detail = (f"BL {'multimodal ' if bl_pdf_path else ''}extraction "
+                  f"failed: {e.detail}")
+        result = _failed(email, reason, detail=detail)
         _log_done(email_id, result, start)
         return result
 

@@ -21,7 +21,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from .schema import REASON_PARSE_ERROR, REASON_UNSUPPORTED_FORMAT
+from .schema import (
+    REASON_PARSE_ERROR,
+    REASON_SCANNED_PDF,
+    REASON_UNSUPPORTED_FORMAT,
+)
 
 
 class ParseError(Exception):
@@ -35,6 +39,25 @@ class ParseError(Exception):
         super().__init__(detail or reason)
         self.reason = reason
         self.detail = detail
+
+
+class ScannedPdfError(ParseError):
+    """Raised when a PDF has no text layer (scanned image).
+
+    The orchestrator catches this specifically and falls back to the
+    multimodal LLM extractor (Section 5.4 / OCR fallback). If that also
+    fails, the result is downgraded to a plain ``parse_error``.
+
+    Carries ``path`` so the multimodal extractor can re-open the file and
+    render pages to images without re-discovering the path.
+    """
+
+    def __init__(self, path, detail: str | None = None):
+        super().__init__(
+            REASON_SCANNED_PDF,
+            detail or f"{Path(path).name} yielded no text (likely a scan)",
+        )
+        self.path = str(path)
 
 
 # ---------------------------------------------------------------------------
@@ -140,8 +163,10 @@ def _read_pdf(path: Path) -> str:
 
     text = "\n".join(p for p in pages_text if p).strip()
     if not text:
-        raise ParseError(REASON_PARSE_ERROR,
-                         f"pdf {path.name} yielded no text (likely a scan)")
+        # Scanned image PDF — no text layer. Raise a typed error so the
+        # orchestrator can route to the multimodal LLM fallback (Gemini
+        # reads the rendered page image directly, no separate OCR step).
+        raise ScannedPdfError(path)
     return text
 
 

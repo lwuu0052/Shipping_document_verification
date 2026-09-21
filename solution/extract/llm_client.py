@@ -192,6 +192,116 @@ def _call_via_factory(doc_text: str, doc_type: str) -> str:
     return raw
 
 
+# ---------------------------------------------------------------------------
+# Multimodal fallback (scanned PDFs)
+# ---------------------------------------------------------------------------
+def _pdf_to_image_parts(pdf_path: str):
+    """Render each PDF page to a PNG and wrap as a genai Part.
+
+    Uses pypdfium2 (installed alongside pdfplumber). Scale=2 gives
+    ~144 DPI on a standard A4 — enough for the LLM to read small print
+    without exploding the token budget.
+    """
+    try:
+        import pypdfium2 as pdfium  # lazy import
+    except ImportError as e:  # pragma: no cover - env dependent
+        raise ExtractionError(
+            detail="pypdfium2 is required for scanned-PDF fallback"
+        ) from e
+
+    try:
+        from google.genai import types
+    except ImportError as e:  # pragma: no cover
+        raise ExtractionError(
+            detail="google-genai is required for multimodal fallback"
+        ) from e
+
+    import io
+    try:
+        pdf = pdfium.PdfDocument(pdf_path)
+    except Exception as e:
+        raise ExtractionError(
+            detail=f"failed to open scanned pdf {pdf_path}: {e}"
+        ) from e
+
+    parts = []
+    try:
+        for i in range(len(pdf)):
+            page = pdf[i]
+            bitmap = page.render(scale=2)
+            pil_image = bitmap.to_pil()
+            buf = io.BytesIO()
+            pil_image.save(buf, format="PNG")
+            parts.append(types.Part.from_bytes(
+                data=buf.getvalue(),
+                mime_type="image/png",
+            ))
+    finally:
+        # pypdfium2 holds the file open until close.
+        try:
+            pdf.close()
+        except Exception:
+            pass
+
+    if not parts:
+        raise ExtractionError(
+            detail=f"scanned pdf {pdf_path} rendered 0 pages"
+        )
+    return parts
+
+
+def _call_via_factory_multimodal(pdf_path: str, doc_type: str) -> str:
+    """Call Gemini with rendered page images + the same JSON prompt.
+
+    Used by the orchestrator when parse_to_text() raises ScannedPdfError.
+    The model reads the rendered image directly — no separate OCR step.
+    """
+    try:
+        from llm_factory import get_llm
+    except ImportError as e:
+        raise ExtractionError(
+            detail="llm_factory not importable"
+        ) from e
+
+    try:
+        client = get_llm(
+            model_name=MODEL_NAME,
+            temperature=0.0
+        )
+    except Exception as e:
+        raise ExtractionError(
+            detail=f"LLM factory init failed: {e}"
+        ) from e
+
+    image_parts = _pdf_to_image_parts(pdf_path)
+
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            # Image parts first, then the same user prompt as the text path.
+            # The system prompt instructs the model to extract the field set
+            # as JSON — Gemini's vision model honors response_mime_type=json.
+            contents=[*image_parts, user_prompt("", doc_type)],
+            config={
+                "system_instruction": SYSTEM_PROMPT,
+                "max_output_tokens": MAX_TOKENS,
+                "response_mime_type": "application/json",
+                "temperature": 0.0,
+            },
+        )
+        raw = response.text
+    except Exception as e:
+        raise ExtractionError(
+            detail=f"multimodal LLM call failed: {e}"
+        ) from e
+
+    if not raw:
+        raise ExtractionError(
+            detail="multimodal LLM returned empty content"
+        )
+    return raw
+
+
 # A pluggable stub function. Tests override this (or set LLM_BACKEND=stub)
 # to drive the extraction layer without network access.
 STUB_RESPONSE: Callable[[str, str], str] | None = None
@@ -238,34 +348,73 @@ def extract_fields(doc_text: str, doc_type: str) -> dict:
     if not doc_text or not doc_text.strip():
         raise ExtractionError(detail=f"empty document text for {doc_type}")
 
-    # Retry policy (Section 4 Step 3 says "retry once"). We split failures
-    # into two classes:
-    #   - Transient (HTTP 429 / 503 / network) → retry up to
-    #     MAX_TRANSIENT_RETRIES times with exponential backoff. These are
-    #     the model's fault (rate limit / overload), not the prompt's; giving
-    #     up after one retry would be a self-inflicted outage.
-    #   - Semantic (bad JSON, schema violation) → still retry once, because
-    #     a re-roll usually produces valid JSON. More retries won't help
-    #     a prompt that's fundamentally wrong.
+    return _retry_loop(
+        lambda: _dispatch_call(doc_text, doc_type),
+        doc_type,
+        context="text",
+    )
+
+
+def extract_fields_from_pdf(pdf_path: str, doc_type: str) -> dict:
+    """Extract the SI/BL field set from a scanned PDF via Gemini vision.
+
+    Called by the orchestrator when :func:`parsers.parse_to_text` raises
+    :class:`parsers.ScannedPdfError`. Renders each PDF page to a PNG and
+    sends the image(s) + the same JSON prompt to the model.
+
+    Returns the same shape as :func:`extract_fields` — the orchestrator
+    does not know whether text or multimodal was used. Raises
+    :class:`ExtractionError` on failure; the orchestrator then downgrades
+    to ``parse_error`` for the downstream reviewer.
+    """
+    backend = os.environ.get("LLM_BACKEND", "factory").lower()
+    if backend == "stub":
+        # Tests can't exercise the real multimodal path; reuse the text
+        # stub. The orchestrator only calls this when parse_to_text raised
+        # ScannedPdfError, so tests wanting to exercise the fallback
+        # should register a STUB_RESPONSE and call extract_fields_from_pdf
+        # directly.
+        return _retry_loop(lambda: _call_stub("", doc_type), doc_type,
+                           context="stub-pdf")
+    if backend != "factory":
+        raise ExtractionError(
+            detail=f"unknown LLM_BACKEND={backend!r}; use 'factory' (default) "
+                   "or 'stub'"
+        )
+
+    return _retry_loop(
+        lambda: _call_via_factory_multimodal(pdf_path, doc_type),
+        doc_type,
+        context="multimodal",
+    )
+
+
+def _retry_loop(call_fn: Callable[[], str], doc_type: str,
+                context: str = "text") -> dict:
+    """Shared retry policy for both text and multimodal extraction.
+
+    Same backoff rules as :func:`extract_fields`: transient errors get
+    exponential backoff with up to MAX_TRANSIENT_RETRIES retries, semantic
+    errors get one quick retry.
+    """
     last_error: Exception | None = None
     attempt = 0
     max_attempts = MAX_TRANSIENT_RETRIES + 1
     while attempt < max_attempts:
         attempt += 1
         try:
-            raw = _dispatch_call(doc_text, doc_type)
+            raw = call_fn()
             return parse_llm_response(raw)
         except ExtractionError as e:
             last_error = e
             transient = _is_transient_error(e.detail)
             log.warning(
-                "llm.extract attempt=%d doc_type=%s transient=%s failed: %s",
-                attempt, doc_type, transient, e.detail,
+                "llm.extract(%s) attempt=%d doc_type=%s transient=%s failed: %s",
+                context, attempt, doc_type, transient, e.detail,
             )
             if attempt >= max_attempts:
                 break
             if transient:
-                # Exponential backoff: 1x, 2x, 4x, ... capped.
                 delay = min(
                     RETRY_DELAY_SECONDS * (2 ** (attempt - 1)),
                     RETRY_DELAY_MAX_SECONDS,
@@ -273,14 +422,13 @@ def extract_fields(doc_text: str, doc_type: str) -> dict:
                 log.info("llm.extract backing off %.1fs", delay)
                 time.sleep(delay)
             elif attempt == 1:
-                # Semantic failure — one quick retry only, per the spec.
                 time.sleep(RETRY_DELAY_SECONDS)
             else:
                 break
 
     raise ExtractionError(
-        detail=f"extraction failed after {attempt} attempt(s) for {doc_type}: "
-               f"{last_error.detail if last_error else 'unknown'}"
+        detail=f"extraction failed after {attempt} attempt(s) for {doc_type} "
+               f"({context}): {last_error.detail if last_error else 'unknown'}"
     ) from last_error
 
 
