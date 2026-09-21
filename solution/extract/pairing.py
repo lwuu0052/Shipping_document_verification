@@ -54,6 +54,11 @@ _BL_CONTENT_TOKENS = (re.compile(r"bill\s+of\s+lading", re.I),
                       re.compile(r"shipped\s+on\s+board", re.I),
                       re.compile(r"b/?l\s*no", re.I))
 
+_WRONG_DOC_CONTENT_TOKENS = (
+    re.compile(r"^\s*commercial\s+invoice\b", re.I | re.M),
+    re.compile(r"^\s*packing\s+list\b", re.I | re.M),
+    re.compile(r"^\s*certificate\s+of\s+origin\b", re.I | re.M),
+)
 
 def _classify_by_name(filename: str) -> str | None:
     """Return 'SI', 'BL', or None based on filename tokens."""
@@ -106,22 +111,35 @@ def pair_attachments(paths: list[str], root: str) -> tuple[str | None, str | Non
     ``try/except`` only covers I/O and LLM failures, not control flow.
     """
     # Step 1.0 — empty list is the special "no attachments at all" case.
-    if not paths:
+    if len(paths) < 2:
         return None, None, REASON_MISSING_ATTACHMENT
 
     classifications: list[tuple[str, str | None]] = []
+
     for rel_path in paths:
+        abs_path = Path(root) / rel_path
+
+        # Read content even when the filename looks like SI/BL.
+        # A misleading filename must not override the actual document type.
+        try:
+            text = _read_text_safe(abs_path)
+        except OSError:
+            text = ""
+
+        # Detect clearly wrong document types first.
+        if text and any(
+            pattern.search(text[:4096])
+            for pattern in _WRONG_DOC_CONTENT_TOKENS
+        ):
+            classifications.append((rel_path, "WRONG"))
+            continue
+
+        # Otherwise use filename, then content as fallback.
         kind = _classify_by_name(rel_path)
-        if kind is None:
-            # Fall back to content sniffing. Read from disk under `root`.
-            abs_path = Path(root) / rel_path
-            try:
-                text = _read_text_safe(abs_path)
-                kind = _classify_by_content(text)
-            except OSError:
-                # Can't read for sniffing — leave None; if every file is
-                # unreadable here, parsers.py will report parse_error later.
-                kind = None
+
+        if kind is None and text:
+            kind = _classify_by_content(text)
+
         classifications.append((rel_path, kind))
 
     si_paths = [p for p, k in classifications if k == "SI"]

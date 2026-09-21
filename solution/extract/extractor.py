@@ -35,6 +35,7 @@ from typing import Any
 
 from .llm_client import ExtractionError, extract_fields, extract_fields_from_pdf
 from .normalize import find_missing, normalize
+from .rule_extract import extract_fields_rule_based
 from .pairing import pair_attachments
 from .parsers import ParseError, ScannedPdfError, parse_to_text
 from .schema import (
@@ -79,7 +80,12 @@ def _extract_one(doc_text: str, doc_type: str, email_id: str,
     if pdf_path is not None:
         raw_fields = extract_fields_from_pdf(pdf_path, doc_type)
     else:
-        raw_fields = extract_fields(doc_text, doc_type)  # raises ExtractionError
+        # Fast/stable path for structured shipping forms. This avoids LLM
+        # variability on fields that are explicitly labelled. Unknown layouts
+        # still fall back to the LLM.
+        raw_fields = extract_fields_rule_based(doc_text)
+        if raw_fields is None:
+            raw_fields = extract_fields(doc_text, doc_type)  # raises ExtractionError
     normalized = normalize(raw_fields)
     return normalized, raw_fields
 
@@ -174,12 +180,13 @@ def extract(email: dict, classification: dict,
     try:
         si_text = parse_to_text(Path(attachment_root) / si_path)
     except ScannedPdfError as e:
-        # Defer to Step 3 multimodal path. Keep the absolute path so the
-        # extractor can re-open the file and render pages.
-        si_pdf_path = e.path
-        si_text = ""  # placeholder; the multimodal path ignores it
-        log.info("extract email_id=%s SI is scanned, using multimodal fallback",
-                 email_id)
+        result = _failed(
+            email,
+            e.reason,
+            detail=f"SI unreadable scanned PDF: {e.detail} (file={si_path})",
+        )
+        _log_done(email_id, result, start)
+        return result
     except ParseError as e:
         result = _failed(email, e.reason,
                          detail=f"SI parse failed: {e.detail} (file={si_path})")
@@ -190,10 +197,13 @@ def extract(email: dict, classification: dict,
     try:
         bl_text = parse_to_text(Path(attachment_root) / bl_path)
     except ScannedPdfError as e:
-        bl_pdf_path = e.path
-        bl_text = ""
-        log.info("extract email_id=%s BL is scanned, using multimodal fallback",
-                 email_id)
+        result = _failed(
+            email,
+            e.reason,
+            detail=f"BL unreadable scanned PDF: {e.detail} (file={bl_path})",
+        )
+        _log_done(email_id, result, start)
+        return result
     except ParseError as e:
         result = _failed(email, e.reason,
                          detail=f"BL parse failed: {e.detail} (file={bl_path})")

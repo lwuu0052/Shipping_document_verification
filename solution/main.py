@@ -227,6 +227,35 @@ def process_email(email: dict, bundle_path: str | None = None,
         log.info("skip email_id=%s category=%s", email_id, category)
         return _submission_for_non_bl(category)
 
+    # A BL-related email with no attachments is not automatically an error.
+    # Only escalate when the email explicitly says expected attachments
+    # are missing/dropped.
+    attachments = email.get("attachments") or []
+
+    if not attachments:
+        body_lower = (email.get("body") or "").lower()
+
+        missing_attachment_cues = (
+            "attachments appear to have been dropped",
+            "attachment appears to have been dropped",
+            "attachments missing",
+            "attachment missing",
+            "missing attachment",
+            "still missing",
+            "not attached",
+        )
+
+        explicitly_missing = any(
+            cue in body_lower for cue in missing_attachment_cues
+        )
+
+        if not explicitly_missing:
+            log.info(
+                "email_id=%s has no actionable attachments; status=OK",
+                email_id,
+            )
+            return _submission_for_non_bl(category)
+
     # ---- Stage 2: Extract ----
     # In HTTP mode, materialize attachments to a local cache directory
     # and rewrite the email so extract() finds the files.

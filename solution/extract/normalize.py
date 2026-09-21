@@ -125,25 +125,22 @@ def normalize_count(raw: str | None) -> int | None:
     except ValueError:
         return None
 
-
-def normalize_company(raw: str | None) -> str | None:
-    """Company name canonicalization.
-
-    Uppercase, collapse internal whitespace, strip trailing periods, and
-    drop spaces immediately after a comma or period. `CO.,LTD` and
-    `CO., LTD.` both become `CO.,LTD` so Compare sees them as equal despite
-    differing source formatting.
-    """
-    if raw is None:
+def normalize_company(value):
+    if value is None:
         return None
-    s = str(raw).strip()
-    if not s:
+
+    text = str(value).strip().upper()
+
+    if not text:
         return None
-    s = s.upper()
-    s = _MULTI_WS.sub(" ", s).strip()
-    s = _SPACE_AFTER_PUNCT.sub(r"\1", s)  # `CO., LTD` -> `CO.,LTD`
-    s = _TRAILING_PERIOD.sub("", s)
-    return s or None
+
+    # Ignore harmless punctuation differences in company names
+    text = re.sub(r"[.,;:()]", " ", text)
+
+    # Collapse repeated whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+
+    return text
 
 
 def normalize_port(raw: str | None) -> str | None:
