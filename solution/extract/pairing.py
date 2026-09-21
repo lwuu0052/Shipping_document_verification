@@ -132,8 +132,15 @@ def pair_attachments(paths: list[str], root: str) -> tuple[str | None, str | Non
     if len(si_paths) == 1 and len(bl_paths) == 1:
         return si_paths[0], bl_paths[0], None
 
+    # If we have one side (SI or BL) but the other is missing, surface as
+    # missing_attachment — ground truth labels these "missing_attachment"
+    # rather than "unreadable"/"pairing_failed".
+    if len(si_paths) >= 1 and len(bl_paths) == 0:
+        return None, None, REASON_MISSING_ATTACHMENT
+    if len(bl_paths) >= 1 and len(si_paths) == 0:
+        return None, None, REASON_MISSING_ATTACHMENT
+
     # Anything else: counts don't add up. Reason depends on shape:
-    #   - one of them present (with or without unknowns) → pairing_failed
     #   - both sides empty / same-type duplicates → pairing_failed
     #   - more than 2 unknown → pairing_failed
     return None, None, REASON_PAIRING_FAILED
