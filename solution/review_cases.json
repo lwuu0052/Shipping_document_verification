@@ -37,5 +37,31 @@
     "missing_fields": [],
     "differences": {},
     "defect_fields": []
+  },
+  {
+    "email_id": "email_016",
+    "status": "PENDING_REVIEW",
+    "review_reason": "missing_attachment",
+    "subject": "AFEMY - ASHDOD_ISRAEL - EVER(EGLV332003791769) - 5RAE-20163 - 5250072870 - TOAN LUC PAPER JOINT STOCK COMPANY - LC",
+    "sender": "aziztz@safqa.co.ke",
+    "detail": "Classified as comparison request but attachments list is empty",
+    "si_data": null,
+    "bl_data": null,
+    "missing_fields": [],
+    "differences": {},
+    "defect_fields": []
+  },
+  {
+    "email_id": "email_018",
+    "status": "PENDING_REVIEW",
+    "review_reason": "missing_attachment",
+    "subject": "RE_ AFPTME - SAVANNAH_US - MONTER(MCLSIN2316658) - 5RAE-69096 - 5250077054 - KPP-ANTALIS (SINGAPORE) PTE. LTD. - OA",
+    "sender": "hari_mardianto@aprilasia.com",
+    "detail": "Classified as comparison request but attachments list is empty",
+    "si_data": null,
+    "bl_data": null,
+    "missing_fields": [],
+    "differences": {},
+    "defect_fields": []
   }
 ]
