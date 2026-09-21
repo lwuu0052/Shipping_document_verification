@@ -48,8 +48,7 @@ if __name__ == '__main__':
     application = InboxDashboard()
     port = int(os.environ.get('INBOX_PORT', '8001'))
     print(f'Inbox dashboard: http://localhost:{port}', flush=True)
-    print('Admin token: ' + application.backend.token, flush=True)
-    print('Use only one dashboard server for processing/review at a time.', flush=True)
+    print('Use only one dashboard server for processing at a time.', flush=True)
     try:
         from waitress import serve
         serve(application, host='127.0.0.1', port=port)

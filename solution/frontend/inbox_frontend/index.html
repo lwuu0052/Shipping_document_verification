@@ -75,23 +75,17 @@
             <i class="dot red"></i> Spam
           </button>
         </nav>
-        <div class="sidebar-bottom">
-          <span class="small-logo">J</span>
-          <div>
-            <strong>Your operations, in order.</strong>
-            <p>From inbox to verified shipment.</p>
-          </div>
-        </div>
       </aside>
       <main class="main">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">SHIPPING OPERATIONS</p>
             <h1 id="folder-title">Inbox</h1>
             <p id="folder-description">A clearer view of every shipment.</p>
           </div>
           <div class="heading-actions">
-            <span class="mode-chip" id="mode-label">Offline baseline</span
+            <span class="mode-chip" id="mode-label">Loading…</span
+            ><button class="outline-button" id="check-score">
+              🏆 Check score</button
             ><button class="outline-button" id="export">
               ↓ Export results
             </button>
@@ -131,13 +125,6 @@
             </div>
           </div>
         </section>
-        <div class="mode-notice">
-          <span>ⓘ</span
-          ><span id="mode-notice"
-            >Offline results use rules, not AI. Review exceptions before relying
-            on a report.</span
-          ><button id="configure">Configure AI →</button>
-        </div>
         <div id="toast" role="status" aria-live="polite"></div>
         <section class="mailbox">
           <div class="mail-tabs" role="tablist" aria-label="Inbox view">
@@ -199,10 +186,6 @@
             ><span>Evidence first. Every decision traceable.</span>
           </div>
         </section>
-        <p class="workspace-note">
-          Your SI is the reference. Missing or uncertain details are sent for
-          review.
-        </p>
       </main>
     </div>
     <dialog id="reader" class="reader">
@@ -220,28 +203,35 @@
           <h2>Processing settings</h2>
           <button class="icon-button" aria-label="Close settings">×</button>
         </div>
-        <p>Choose how to classify emails and read documents.</p>
-        <label
-          >Processing mode<select id="mode">
-            <option value="offline">Offline baseline — no API calls</option>
-            <option value="cloud">Cloud AI — uses your API credits</option>
-          </select></label
-        ><label
-          >Admin token<input
-            id="token"
-            type="password"
-            autocomplete="off"
-            placeholder="Token printed in your server terminal"
-        /></label>
+        <p>
+          Verifying documents calls Gemini (extraction) and OpenAI
+          (classification) using the API keys configured on the server.
+        </p>
         <p class="settings-note" id="cloud-status">
           Checking cloud configuration…
         </p>
+        <label
+          >Self-eval server URL<input
+            id="eval-url"
+            type="text"
+            placeholder="http://localhost:8080"
+        /></label>
         <p class="settings-note">
-          The token permits processing and review changes. It is not your AI API
-          key and stays in this page only.
+          Used by "Check score" to POST your current results to the
+          hackathon's self-evaluation server (e.g. the sdoc-hackathon-docker
+          container) and show the scoreboard it returns.
         </p>
         <button class="primary-button">Done</button>
       </form>
+    </dialog>
+    <dialog id="score-dialog" class="settings">
+      <div class="dialog-heading">
+        <h2>Self-evaluation score</h2>
+        <button class="icon-button" id="score-close" aria-label="Close score">
+          ×
+        </button>
+      </div>
+      <div id="score-content"></div>
     </dialog>
     <script src="/inbox.js"></script>
   </body>

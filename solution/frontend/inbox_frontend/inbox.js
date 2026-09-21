@@ -7,6 +7,7 @@ let state = null, folder = 'all', actionOnly = false, page = 0, selected = new S
 const pageSize = 10;
 let stars = new Set();
 try { stars = new Set(JSON.parse(localStorage.getItem('harborcheck-stars') || '[]')); } catch (_) {}
+try { byId('eval-url').value = localStorage.getItem('harborcheck-eval-url') || 'http://localhost:8080'; } catch (_) {}
 function notify(text) { byId('toast').textContent = text; }
 function statusLabel(email) {
   if(email.error) return 'Processing error';
@@ -14,7 +15,7 @@ function statusLabel(email) {
 }
 function pill(status,label) { return `<span class="status-pill ${escapeHTML(status)}">${status==='OK'?'✓':status==='NEEDS_REVIEW'?'◷':status==='MISMATCH'?'⚑':'·'} ${escapeHTML(label || status)}</span>`; }
 async function api(path, body) {
-  const options = body === undefined ? {} : {method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+byId('token').value},body:JSON.stringify(body)};
+  const options = body === undefined ? {} : {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
   const response = await fetch(path,options);
   const data = await response.json();
   if(!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
@@ -65,7 +66,8 @@ function renderSummary() {
   byId('connection').textContent='Workspace connected';
   byId('process-all').disabled=state.job.running;
   byId('job-progress').textContent=state.job.running?`Verifying ${state.job.completed} / ${state.job.total}`:'';
-  byId('cloud-status').textContent=state.cloud_configured?'Cloud credentials are configured. Test one email before a full run.':'Cloud AI is not configured. Add OPENAI_API_KEY and OPENAI_MODEL to .env, then restart the server.';
+  byId('cloud-status').textContent=state.cloud_configured?'GEMINI_API_KEY and OPENAI_API_KEY are configured. Ready to verify documents.':'Missing GEMINI_API_KEY or OPENAI_API_KEY. Add both to .env, then restart the server.';
+  byId('mode-label').textContent=state.cloud_configured?'Live pipeline':'Not configured';
   if(state.job.error) notify(state.job.error);
 }
 async function refresh(force=false) {
@@ -109,36 +111,18 @@ async function openEmail(id) {
       if(r.review_detail)html+=`<p class="report-notice">${escapeHTML(r.review_detail)}</p>`;
       if(r.category==='BL_COMPARISON'&&r.status==='OK')html+='<p class="report-notice">✓ No mismatch detected. All seven fields agree.</p>';
       if(r.rows?.length)html+=`<h3>Shipment comparison</h3><div class="table-wrap"><table><thead><tr><th>Field</th><th>SI · Reference</th><th>BL · Draft</th><th>Result</th></tr></thead><tbody>${r.rows.map(row=>`<tr><td>${escapeHTML(row.field.replaceAll('_',' '))}</td><td>${escapeHTML(row.si??'Missing')}</td><td>${escapeHTML(row.bl??'Missing')}</td><td>${pill(row.result==='MATCH'?'OK':row.result,row.result==='MATCH'?'Match':row.result==='MISMATCH'?'Mismatch':'Review')}<details><summary>Evidence</summary><b>SI</b><pre>${escapeHTML(row.si_evidence)}</pre><b>BL</b><pre>${escapeHTML(row.bl_evidence)}</pre></details></td></tr>`).join('')}</tbody></table></div>`;
-      html+=(r.attachments||[]).map(a=>`<details><summary>Source document · ${escapeHTML(a.path.split('/').pop())}</summary><pre>${escapeHTML(a.error||a.document?.text||'No text layer available. Download the original document to inspect it.')}</pre></details>`).join('');
-      html+=`<details><summary>Review and correct this result</summary><form id="review-form" class="review-box"><label>Confirmed category<select id="review-category">${state.categories.map(c=>`<option value="${c}" ${c===r.category?'selected':''}>${escapeHTML(categoryNames[c])}</option>`).join('')}</select></label><label>Resolution<select id="review-unresolved"><option value="">Resolve with verified values</option>${['wrong_doc_type','missing_attachment','unreadable','missing_value'].map(s=>`<option value="${s}">Keep open: ${s.replaceAll('_',' ')}</option>`).join('')}</select></label><div class="review-columns">${['SI','BL'].map(kind=>`<section><h3>${kind==='SI'?'Shipping instruction':'Draft bill of lading'}</h3>${state.fields.map(field=>`<label>${escapeHTML(field.replaceAll('_',' '))}<textarea data-kind="${kind}" data-field="${field}">${escapeHTML(r.documents[kind]?.fields[field]??'')}</textarea></label>`).join('')}</section>`).join('')}</div><label class="review-check"><input type="checkbox" id="review-verified"> I inspected the intended SI and BL and verified these values.</label><label>Reviewer name<input id="reviewer-name" required></label><label>Evidence or reason<textarea id="review-note" required></textarea></label><p id="review-feedback" role="status"></p><button class="primary-button">Save review and compare again</button></form></details><details><summary>Review and retry history (${r.audit.length})</summary><pre>${escapeHTML(JSON.stringify(r.audit,null,2))}</pre></details>`;
     } else html+='<p class="report-notice">This message has not been processed. Choose Reprocess to classify it and check any shipping documents.</p>';
     byId('reader-content').innerHTML=html;
-    if(byId('review-form')) byId('review-form').onsubmit=saveReview;
     if(!byId('reader').open)byId('reader').showModal();
   }catch(error){notify(error.message);}
 }
 function settings(){byId('settings').showModal();}
 async function run(ids) {
-  if(!byId('token').value){settings();notify('Enter the admin token from your server terminal to verify documents.');return;}
-  const mode=byId('mode').value;
-  if(mode==='cloud'&&!state.cloud_configured){settings();notify('Configure your cloud API credentials and restart first.');return;}
+  if(!state.cloud_configured){settings();notify('Add GEMINI_API_KEY and OPENAI_API_KEY to .env, then restart the server.');return;}
   const count=ids?ids.length:state.emails.length;
-  if(!confirm(`Process ${count} email${count===1?'':'s'} in ${mode} mode? Existing reports will be replaced, with history preserved.${mode==='cloud'?' This sends content to OpenAI and uses API credits.':''}`))return;
-  try{await api('/api/run',{mode,...(ids?{email_ids:ids}:{})});notify('Verification started. Progress appears above the inbox.');await refresh(true);if(byId('reader').open)byId('retry').disabled=true;}
+  if(!confirm(`Verify ${count} email${count===1?'':'s'}? Existing reports for these emails will be replaced. This calls Gemini and OpenAI and uses API credits.`))return;
+  try{await api('/api/run',ids?{email_ids:ids}:{});notify('Verification started. Progress appears above the inbox.');await refresh(true);if(byId('reader').open)byId('retry').disabled=true;}
   catch(error){notify(error.message);}
-}
-async function saveReview(event) {
-  event.preventDefault();
-  const feedback=byId('review-feedback');
-  try {
-    const fields={SI:{},BL:{}};
-    document.querySelectorAll('[data-field]').forEach(el=>fields[el.dataset.kind][el.dataset.field]=el.value.trim()||null);
-    await api('/api/review',{email_id:current.email.email_id,version:current.report.version,
-      category:byId('review-category').value,reviewer:byId('reviewer-name').value,note:byId('review-note').value,
-      verified_documents:byId('review-verified').checked,unresolved_reason:byId('review-unresolved').value,fields});
-    notify('Review saved. The comparison and audit history have been updated.');
-    await openEmail(current.email.email_id);await refresh(true);
-  }catch(error){feedback.textContent=error.message;}
 }
 byId('mail-list').onclick=event=>{
   const row=event.target.closest('[data-email]');if(!row)return;const id=row.dataset.email;
@@ -151,15 +135,33 @@ byId('mail-list').onclick=event=>{
 };
 byId('mail-list').onkeydown=event=>{if(event.target.matches('.mail-row')&&(event.key==='Enter'||event.key===' ')){event.preventDefault();openEmail(event.target.dataset.email);}};
 byId('select-all').onchange=event=>{filteredEmails().slice(page*pageSize,(page+1)*pageSize).forEach(e=>event.target.checked?selected.add(e.email_id):selected.delete(e.email_id));renderRows();};
-document.querySelectorAll('[data-folder]').forEach(el=>el.onclick=()=>setFolder(el.dataset.folder));
+document.querySelectorAll('[data-folder]').forEach(el=>el.onclick=()=>setFolder(folder===el.dataset.folder?'all':el.dataset.folder));
 byId('search').oninput=()=>{page=0;renderRows();};
 byId('tab-all').onclick=()=>setTab(false);byId('tab-action').onclick=()=>setTab(true);
 byId('prev-page').onclick=()=>{page--;renderRows();};byId('next-page').onclick=()=>{page++;renderRows();};
 byId('refresh').onclick=()=>refresh(true);
-byId('settings-open').onclick=settings;byId('configure').onclick=settings;
+byId('settings-open').onclick=settings;
 byId('menu-toggle').onclick=()=>document.body.classList.toggle('sidebar-hidden');
 byId('process-all').onclick=()=>state&&run();byId('process-selected').onclick=()=>run([...selected]);
 byId('retry').onclick=()=>current&&run([current.email.email_id]);byId('reader-close').onclick=()=>byId('reader').close();
-byId('mode').onchange=()=>{const cloud=byId('mode').value==='cloud';byId('mode-label').textContent=cloud?'Cloud AI selected':'Offline baseline';byId('mode-notice').textContent=cloud?'New processing uses cloud AI and API credits. Existing reports retain their original processing mode.':'Offline results use rules, not AI. Review exceptions before relying on a report.';};
 byId('export').onclick=async()=>{try{const data=await api('/api/export');const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='submission.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);notify('Exported submission.json.');}catch(error){notify(error.message);}};
+function pct(v){return ((v||0)*100).toFixed(1)+'%';}
+function renderScore(result){
+  if(result.error){byId('score-content').innerHTML=`<p class="report-notice error">${escapeHTML(result.error)}</p>`;byId('score-dialog').showModal();return;}
+  const s1=result.stage1||{},s3=result.stage3||{},rel=result.reliability||{},e2e=result.end_to_end||{};
+  byId('score-content').innerHTML=`<p class="report-notice"><strong>Final score: ${pct(result.final_score)}</strong> · ${result.n_emails ?? '?'} emails scored</p>`+
+    `<h3>Classification</h3><p>Accuracy ${pct(s1.accuracy)} · Macro F1 ${pct(s1.macro_f1)}</p>`+
+    `<h3>Defect detection</h3><p>Precision ${pct(s3.defect_precision)} · Recall ${pct(s3.defect_recall)} · F1 ${pct(s3.defect_f1)} · Exact field match ${pct(s3.exact_match_rate)}</p>`+
+    `<h3>End-to-end (headline)</h3><p>${e2e.success ?? 0} / ${e2e.total ?? 0} planted defects caught exactly (${pct(e2e.rate)})</p>`+
+    `<h3>Reliability (human review)</h3><p>Escalation recall ${pct(rel.escalation_recall)} · precision ${pct(rel.escalation_precision)} · F1 ${pct(rel.escalation_f1)}</p>`;
+  byId('score-dialog').showModal();
+}
+byId('check-score').onclick=async()=>{
+  const evalUrl=(byId('eval-url').value||'http://localhost:8080').trim();
+  try{localStorage.setItem('harborcheck-eval-url',evalUrl);}catch(_){}
+  notify('Scoring against '+evalUrl+'…');
+  try{const result=await api('/api/check-score',{eval_url:evalUrl});renderScore(result);notify('');}
+  catch(error){notify(error.message);}
+};
+byId('score-close').onclick=()=>byId('score-dialog').close();
 refresh();setInterval(()=>refresh(),3000);
