@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 <<<<<<< HEAD
 # ============================================================
 # main.py
@@ -58,17 +59,26 @@ def process_email(email, attachment_root):
 # main.py
 import os
 import sys
+=======
+from pathlib import Path
+>>>>>>> Stashed changes
 import json
 from classify import classify_email
 from extract.extractor import extract
 from comparator import compare_documents
 
+<<<<<<< Updated upstream
 sys.path.insert(
     0,
     os.path.abspath(
         os.path.join(os.path.dirname(__file__), "..", "sdoc-hackathon-bundle")
     ),
 )
+=======
+from human_review import create_review_case, normalize_review_reason
+from review_store import save_review_case
+
+>>>>>>> Stashed changes
 from loader import Inbox
 
 
@@ -155,13 +165,47 @@ def process_email(email):
         print(f"Reason: {extraction.get('reason')}")
 >>>>>>> 57264dbd5220ccdcff474f493c6e317a6d8bcc19
 
-        return {
+        # result = {
+        #     "email_id": email_id,
+        #     "category": classification["category"],
+        #     "status": "NEEDS_REVIEW",
+        #     "reason": extraction.get("reason"),
+        #     "review_reason": extraction.get("reason"),
+        #     "detail": extraction.get("detail"),
+        # }
+
+        raw_reason = extraction.get("reason")
+
+        result = {
             "email_id": email_id,
             "category": classification["category"],
             "status": "NEEDS_REVIEW",
+<<<<<<< Updated upstream
             "reason": extraction.get("reason"),
             "detail": extraction.get("detail")
+=======
+
+            # Keep technical/internal reason for debugging
+            "reason": raw_reason,
+
+            # Official challenge reason
+            "review_reason": normalize_review_reason(raw_reason),
+
+            "detail": extraction.get("detail"),
+>>>>>>> Stashed changes
         }
+        
+        review_case = create_review_case(
+            email=email,
+            result=result,
+            extraction=extraction,
+        )
+
+        save_review_case(review_case)
+
+        result["review_case"] = review_case
+
+        return result
 
 <<<<<<< HEAD
     # --------------------------------------------------------
@@ -264,9 +308,27 @@ def process_email(email):
         print("Human review required.")
         print(f"Missing fields: {comparison['missing_fields']}")
 
+        review_result = {
+            "status": "NEEDS_REVIEW",
+            "review_reason": "missing_value",
+            "missing_fields": comparison.get("missing_fields", []),
+            "differences": comparison.get("differences", {}),
+        }
+
+        review_case = create_review_case(
+            email=email,
+            result=review_result,
+            extraction=extraction,
+            comparison=comparison,
+        )
+
+        print("Review case created:")
+        print(review_case)
+
     else:
         print("SI and BL match.")
 
+<<<<<<< Updated upstream
     # ---------------------------------------------------------
     # FINAL RESULT
     # ---------------------------------------------------------
@@ -276,13 +338,34 @@ def process_email(email):
         "status": comparison["status"],
 >>>>>>> 57264dbd5220ccdcff474f493c6e317a6d8bcc19
         "comparison": comparison
+=======
+    result = {
+        "email_id": email_id,
+        "category": classification["category"],
+        "status": comparison["status"],
+        "comparison": comparison,
+        "review_reason": comparison["review_reason"],
+        "missing_fields": comparison["missing_fields"],
+        "differences": comparison["differences"],
+>>>>>>> Stashed changes
     }
 
+    # Attach human-review information when needed
+    if comparison["status"] == "NEEDS_REVIEW":
+        result["review_case"] = review_case
 
+    return result
+
+
+<<<<<<< Updated upstream
 <<<<<<< HEAD
 # ============================================================
 # Main program
 # ============================================================
+=======
+def main():
+    bundle_path = str(Path(__file__).resolve().parent.parent / "sdoc-hackathon-bundle")
+>>>>>>> Stashed changes
 
 def main():
 
@@ -343,12 +426,16 @@ def main():
     # Store all results
     results = []
 
+<<<<<<< Updated upstream
     # --------------------------------------------------------
     # Process every email
     # --------------------------------------------------------
 
     for email in emails:
 
+=======
+    for email in emails[:15]:
+>>>>>>> Stashed changes
         try:
 
             result = process_email(

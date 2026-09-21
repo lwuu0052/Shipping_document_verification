@@ -1,0 +1,41 @@
+[
+  {
+    "email_id": "email_001",
+    "status": "PENDING_REVIEW",
+    "review_reason": "missing_attachment",
+    "subject": "TO CONFIRM DOCS _ 5RSG-00133 _ CALLAO_PERU _ MOORIM SP CO., LTD _ MEDUUD104332",
+    "sender": "aziztz@safqa.co.ke",
+    "detail": "Classified as comparison request but attachments list is empty",
+    "si_data": null,
+    "bl_data": null,
+    "missing_fields": [],
+    "differences": {},
+    "defect_fields": []
+  },
+  {
+    "email_id": "email_003",
+    "status": "PENDING_REVIEW",
+    "review_reason": "missing_attachment",
+    "subject": "RE_ TO CONFIRM DOCS _ 5AAT-03056 _ AQABA_JORDAN _ ROXCEL TRADING GMBH _ SIN525534192",
+    "sender": "exports@ifpla.com",
+    "detail": "Classified as comparison request but attachments list is empty; subject references SI ['SIN525534192'] while body references SI ['SIN832764835'] \u2014 clarification needed",
+    "si_data": null,
+    "bl_data": null,
+    "missing_fields": [],
+    "differences": {},
+    "defect_fields": []
+  },
+  {
+    "email_id": "email_011",
+    "status": "PENDING_REVIEW",
+    "review_reason": "missing_attachment",
+    "subject": "15_01_2026 - UPDATE SUMMARY LE HAVRE V.QI540A",
+    "sender": "noreply@aprilasia.com",
+    "detail": "Classified as comparison request but attachments list is empty",
+    "si_data": null,
+    "bl_data": null,
+    "missing_fields": [],
+    "differences": {},
+    "defect_fields": []
+  }
+]
