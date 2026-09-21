@@ -52,10 +52,18 @@ CLASSIFICATION_PROMPT = ChatPromptTemplate.from_messages([
         "— the intent is still about BL verification/review.\n"
         "  CRITICAL: An email that SUBMITS a Shipping Instruction in the body "
         "(e.g. 'Please find Shipping instruction for <booking>') is new_si_request, "
-        "NOT document_comparison_request — even though it mentions shipping docs.\n\n"
+        "NOT document_comparison_request — even though it mentions shipping docs.\n"
+        "  CRITICAL: If the body contains a complete SI submission pattern like "
+        "'Please find Shipping instruction for <booking>' followed by structured "
+        "fields (POL/POD/Shipper/Consignee/etc.) with NO attachments — this is "
+        "new_si_request, regardless of subject keywords like 'SI' or 'CUST SI'.\n\n"
 
         "- new_si_request: Sender is FORMALLY submitting a new Shipping Instruction, "
         "or providing complete cargo/container details to issue one.\n"
+        "  CRITICAL: An email body starting with 'Please find Shipping instruction "
+        "for <booking>' and listing POL/POD/Shipper/Consignee fields (with or "
+        "without attachments) is ALWAYS new_si_request — do NOT reclassify as "
+        "document_comparison_request based on subject keywords or priority rules.\n"
         "  CRITICAL: Asking WHEN an SI will be ready, chasing status, general cargo "
         "updates, or casual logistics questions are general_message, NOT new_si_request.\n\n"
 
@@ -79,7 +87,10 @@ CLASSIFICATION_PROMPT = ChatPromptTemplate.from_messages([
 
         "PRIORITY RULE:\n"
         "If an email matches multiple categories, pick the highest in this hierarchy:\n"
-        "document_comparison_request > new_si_request > invoice_query > spam > general_message\n\n"
+        "document_comparison_request > new_si_request > invoice_query > spam > general_message\n"
+        "  OVERRIDE: If the email body explicitly submits an SI (e.g. 'Please find "
+        "Shipping instruction for <booking>' followed by POL/POD/Shipper/Consignee "
+        "fields), it is ALWAYS new_si_request — this overrides the priority rule above.\n\n"
 
         "TIE-BREAKER:\n"
         "When torn between document_comparison_request and general_message, choose "

@@ -6,6 +6,7 @@ or NEEDS_REVIEW. Moreover it also lists mismatched and missing field.
 
 
 import math
+import re
 
 
 # The 7 fields required by the hackathon
@@ -20,22 +21,78 @@ FIELDS = [
 ]
 
 
+# Company suffix tokens to ignore when comparing party names. These often
+# appear in different orders / languages between SI and BL (e.g. "FZE" vs
+# "F.Z.E", "PTE LTD" vs "PRIVATE LIMITED") and are not meaningful defects.
+_COMPANY_SUFFIXES = {
+    "ltd", "co", "inc", "llc", "llp", "plc", "gmbh", "ag", "bv", "nv",
+    "pte", "private", "limited", "corp", "corporation", "group",
+    "fze", "fzc", "fz", "fzco", "fzn", "dmcc",
+    "sdn", "bhd", "srl", "spa", "sa", "oao", "ooo", "jsc",
+    "the", "of", "and", "&",
+}
+
+# Common punctuation that should not affect name matching
+_PUNCT_RE = re.compile(r"[.,;:()\[\]{}'\"`!?\\/_-]+")
+
+# Fields where token-order-insensitive comparison is appropriate
+_PARTY_FIELDS = {"shipper", "consignee", "notify_party"}
+
+
+def _tokenize_for_compare(value: str) -> list[str]:
+    """Tokenize a text value for comparison: casefold, strip punctuation,
+    drop company suffix tokens."""
+    text = " ".join(value.casefold().split())
+    text = _PUNCT_RE.sub(" ", text)
+    text = " ".join(text.split())
+    return [t for t in text.split() if t not in _COMPANY_SUFFIXES]
+
+
 def normalize_text(value):
     """
     Clean text so capitalization and extra spaces do not cause false mismatches.
     """
-    
-
     if value is None:
         return None
-
     value = str(value).strip()
-
     if value == "":
         return None
-
-    # Ignore capitalization and repeated spaces
     return " ".join(value.casefold().split())
+
+
+def _text_equivalent(si_value, bl_value) -> bool:
+    """Return True if si_value and bl_value should be considered the same
+    party/address despite formatting differences.
+
+    Two values are equivalent if their token sets (after casefolding,
+    punctuation stripping, and dropping company suffix tokens) overlap by
+    >= 85% (Jaccard similarity). This handles cases where the LLM extracts
+    slightly different formats of the same party name
+    (e.g. "APRIL FINE PAPER TRADING (MIDDLE EAST) FZE" vs
+    "April Fine Paper Trading Middle East FZE") without flagging them as
+    defects.
+    """
+    if si_value is None or bl_value is None:
+        # Let the caller handle None
+        return normalize_text(si_value) == normalize_text(bl_value)
+
+    a = set(_tokenize_for_compare(str(si_value)))
+    b = set(_tokenize_for_compare(str(bl_value)))
+
+    if not a and not b:
+        return True
+    if not a or not b:
+        return False
+
+    # Exact set match
+    if a == b:
+        return True
+
+    # High overlap — likely the same name with minor token differences
+    intersection = len(a & b)
+    union = len(a | b)
+    jaccard = intersection / union if union else 0.0
+    return jaccard >= 0.85
 
 
 def normalize_number(value):
@@ -109,7 +166,16 @@ def compare_documents(si, bl):
             continue
 
         # Compare
-        if si_value != bl_value:
+        # For party fields (shipper/consignee/notify_party), use the
+        # token-set similarity comparison so formatting differences
+        # (case, punctuation, company suffix variations, token order)
+        # don't cause false-positive defects.
+        if field in _PARTY_FIELDS:
+            is_match = _text_equivalent(si_original, bl_original)
+        else:
+            is_match = (si_value == bl_value)
+
+        if not is_match:
 
             defect_fields.append(field)
 
