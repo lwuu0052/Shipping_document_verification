@@ -4,3 +4,28 @@
 /* Keep the compact inbox readable on laptop and narrow app panels. */
 .nav-item{font-size:13px;color:#526579}.labels .nav-item{font-size:12px}.nav-heading{font-size:10px;color:#76879b}.sender-name{font-size:12px;color:#52657c}.subject{font-size:12px;color:#3d516b}.mail-preview{font-size:11px;color:#76879b}.category-tag{font-size:9px}.row-id{font-size:10px;color:#7b8da4}.status-pill{font-size:10px}.summary-card p{font-size:11px;color:#6b7e96}.summary-card small{font-size:10px;color:#7f90a5}.mode-notice{font-size:11px;color:#617d9f}.mail-footer{font-size:10px;color:#8092a8}.workspace-note{font-size:10px;color:#8395ac}.eyebrow{color:#768ba5}.mail-tab{font-size:13px}.pagination span{font-size:11px;color:#7a8da5}.text-button{font-size:11px}#folder-description{color:#72869f}.mail-tabs .mail-tab{color:#7186a1}.mail-tab.active{color:#3568b8}.settings .settings-note{font-size:12px}.reader-content pre{font-size:12px;color:#526983}.reader-content summary{font-size:12px;color:#59779f}td{color:#526b88;font-size:12px}th{font-size:11px}.review-box textarea{font-size:12px}
 @media(max-width:460px){.mail-row{grid-template-columns:13px 16px minmax(0,1fr) auto;gap:7px}.subject{font-size:11px}.mail-preview{font-size:10px}.status-pill{font-size:9px}.summary-card p{font-size:11px}.pagination span{font-size:10px}.mail-toolbar{gap:3px}}
+
+/* Bigger, higher-contrast text. Status pills, category-tag accent colors,
+   dots, links and buttons keep their original colors on purpose — only the
+   muted gray body/label text gets darkened and enlarged. */
+:root{font-size:18px}
+h1{font-size:36px}
+.eyebrow,#folder-description,.nav-heading,.nav-item,.nav-item b,.labels .nav-item,
+.sender-name,.subject,.mail-preview,.row-id,.category-tag,.summary-card p,.summary-card small,
+.mode-notice,.mail-footer,.mail-tabs .mail-tab,.text-button,.pagination span,.online,
+.search-wrap input,.search-hint,#toast,.reader-meta,.reader-content pre,.reader-content summary,
+td,th,.report-notice,.settings p,.settings .settings-note,.attachment-link,#page-info,
+#job-progress,.review-box label,.settings label{color:#111}
+#folder-description,.sender-name,.subject{font-size:16px}
+.mail-preview{font-size:15px}
+.nav-item{font-size:16px}
+.labels .nav-item{font-size:15px}
+.summary-card p,.summary-card small,.mode-notice,.mail-footer{font-size:13px}
+.summary-card strong{font-size:32px}
+td,th,.reader-content pre,.reader-content summary{font-size:15px}
+.category-tag{font-size:11px}
+.status-pill{font-size:11px}
+.row-id{font-size:12px}
+#score-content h3{font-size:14px;margin:18px 0 8px;color:#111}
+#score-content p{margin:4px 0;color:#111}
+#score-content .report-notice{margin-top:0}
