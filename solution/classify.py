@@ -39,20 +39,50 @@ CLASSIFICATION_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         "You are an AI email triage assistant for a shipping and logistics company. "
-        "Analyze the email subject, body, and attachment filenames to determine the sender's primary intent.\n\n"
-        "Categories:\n"
-        "- document_comparison_request: Sender wants to compare, cross-check, or verify Shipping Instructions (SI) against a Bill of Lading (BL).\n"
-        "- new_si_request: Sender is submitting or requesting to issue a new Shipping Instruction.\n"
-        "- invoice_query: Inquiries regarding billing, freight charges, payment status, or invoices.\n"
-        "- spam: Unsolicited sales, phishing, marketing, or irrelevant spam messages.\n"
-        "- general_message: General inquiries, greetings, or logistics questions that do not fit the other categories."
+        "Analyze the email subject, body, and attachment filenames to determine "
+        "the sender's primary intent.\n\n"
+
+        "Categories:\n\n"
+
+        "- document_comparison_request: Sender wants to compare, cross-check, or "
+        "verify Shipping Instructions (SI) against a Bill of Lading (BL).\n\n"
+
+        "- new_si_request: Sender is FORMALLY submitting a new Shipping Instruction, "
+        "or providing complete cargo/container details to issue one.\n"
+        "  CRITICAL: Asking WHEN an SI will be ready, chasing status, general cargo "
+        "updates, or casual logistics questions are general_message, NOT new_si_request.\n\n"
+
+        "- invoice_query: Inquiries regarding billing, freight charges, debit/credit "
+        "notes, payment status, or invoices.\n\n"
+
+        "- spam: Malicious phishing, suspicious links, or non-logistics commercial "
+        "ads (SEO services, casino, loans).\n"
+        "  CRITICAL: Vessel schedule updates, port delay advisories, holiday notices, "
+        "and system-generated logistics newsletters are general_message, NOT spam.\n\n"
+
+        "- general_message: Catch-all. Status updates, vessel schedules, container "
+        "tracking, ETA/ETD queries, automated notices, greetings, follow-ups, or "
+        "anything ambiguous.\n\n"
+
+        "ATTACHMENT RULES (filenames override body wording):\n"
+        "- Both a *_SI.* and a *_BL.* file are attached -> document_comparison_request\n"
+        "- Only a *_SI.* file, and the sender is submitting it -> new_si_request\n\n"
+
+        "PRIORITY RULE:\n"
+        "If an email matches multiple categories, pick the highest in this hierarchy:\n"
+        "document_comparison_request > new_si_request > invoice_query > spam > general_message\n\n"
+
+        "TIE-BREAKER:\n"
+        "When torn between document_comparison_request and general_message, choose "
+        "document_comparison_request. A false positive is cheap (the comparison simply "
+        "finds no defect), but a false negative means a document error is never caught."
     ),
     (
         "human",
         "Email Subject: {subject}\n"
         "Email Body:\n{body}\n"
         "Attachment Names: {attachments}\n"
-    )
+    ),
 ])
 
 @lru_cache(maxsize=1)
@@ -68,7 +98,7 @@ def get_classification_chain():
 # Get the subject ,body and attachment names from the email
 def parse_email_metadata(email: dict):
     subject = email.get("subject") or ""
-    body = email.get("body") or ""
+    body = (email.get("body") or "")[:3000]
     raw_attachments = email.get("attachments") or []
     attachment_names = [str(att) for att in raw_attachments]
     return subject, body, attachment_names
@@ -78,62 +108,41 @@ def parse_email_metadata(email: dict):
 # Decision & category classification (Main function)
 # ============================================================
 def classify_email(email: dict):
-    subject, body, names = parse_email_metadata(email)
+  email_id = email.get("id") or email.get("email_id")
+  subject, body, names = parse_email_metadata(email)
 
-    # Step 1: Use LLM to classify the email
+  try:
     raw_output = get_classification_chain().invoke({
         "subject": subject,
         "body": body,
-        "attachments": ", ".join(names) if names else "None"
+        "attachments": ", ".join(names) if names else "None",
     })
-    
+
     if isinstance(raw_output, EmailClassificationResult):
-        predicted_category = raw_output.category
+      predicted_category = raw_output.category
     elif isinstance(raw_output, dict):
-        predicted_category = raw_output.get("category", "general_message")
+      predicted_category = raw_output.get("category", CATEGORY_GENERAL)
     else:
-        data = raw_output.model_dump()
-        predicted_category = data.get("category", "general_message")
+      data = raw_output.model_dump()
+      predicted_category = data.get("category", CATEGORY_GENERAL)
 
-    # Step 2: Map to official category constants
-    category_map = {
-        "document_comparison_request": CATEGORY_BL_COMPARISON,
-        "new_si_request": CATEGORY_SI_REQUEST,
-        "invoice_query": CATEGORY_INVOICE_QUERY,
-        "general_message": CATEGORY_GENERAL,
-        "spam": CATEGORY_SPAM,
-    }
-    final_category = category_map.get(predicted_category, CATEGORY_GENERAL)
+  except Exception:
     return {
-        "email_id": email.get("id") or email.get("email_id"),
-        "category": final_category,
-        "should_process": (final_category == CATEGORY_BL_COMPARISON),
+        "email_id": email_id,
+        "category": CATEGORY_GENERAL,
+        "should_process": False,
     }
 
+  CATEGORY_MAP = {
+      "document_comparison_request": CATEGORY_BL_COMPARISON,
+      "new_si_request":              CATEGORY_SI_REQUEST,
+      "invoice_query":               CATEGORY_INVOICE_QUERY,
+      "general_message":             CATEGORY_GENERAL,
+      "spam":                        CATEGORY_SPAM,}
+  final_category = CATEGORY_MAP.get(predicted_category, CATEGORY_GENERAL)
 
-# if __name__ == "__main__":
-#     from functools import lru_cache
-#     import sys
-
-#     sys.path.insert(
-#       0,
-#       os.path.abspath(
-#           os.path.join(os.path.dirname(__file__), "..", "sdoc-hackathon-bundle")
-#       ),
-#     )
-
-#     from loader import Inbox
-
-#     bundle_path = os.path.abspath(
-#       os.path.join(os.path.dirname(__file__), "..", "sdoc-hackathon-bundle")
-#     )
-#     inbox = Inbox(bundle_path)
-#     print(f"Total emails: {len(inbox.emails())}\n")
-
-
-#     for email in list(inbox)[:5]:
-#       res = classify_email(email)
-#       print(
-#         f"[{res['email_id']}] Category: {res['category']} | Process:"
-#         f" {res['should_process']}"
-#     )
+  return {
+      "email_id": email_id,
+      "category": final_category,
+      "should_process": (final_category == CATEGORY_BL_COMPARISON),
+  }
