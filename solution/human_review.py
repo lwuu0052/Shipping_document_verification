@@ -32,7 +32,7 @@ REASON_MAPPING = {
     "missing_attachment": "missing_attachment",
 
     "unsupported_format": "unreadable",
-    "parse_error": "unreadable",
+    # "parse_error": "unreadable",
     "extraction_error": "unreadable",
 
     "field_null": "missing_value",

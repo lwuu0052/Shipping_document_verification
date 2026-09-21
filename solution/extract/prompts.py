@@ -58,6 +58,35 @@ HARD RULES — violating any of these breaks the pipeline:
    "1 x 40'HC" or "3 x 20'GP".
 7. For `gross_weight_kg`, return the source string verbatim,
    for example "21,577 KG" or "138.000 MT".
+8. Field labels may vary. Treat these labels as equivalent:
+
+   - shipper:
+     "Shipper", "Shipper/Exporter", "Exporter",
+     "Shipper (Principal or Seller)"
+
+   - consignee:
+     "Consignee", "Consignee Name",
+     "Consignee (Non-Negotiable)"
+
+   - notify_party:
+     "Notify Party", "Notify", "Notify Address",
+     "Notify Party/Intermediate Consignee"
+
+   - port_of_loading:
+     "Port of Loading", "POL", "Load Port",
+     "Port of Loading (POL)"
+
+   - port_of_discharge:
+     "Port of Discharge", "POD", "Discharge Port",
+     "Port of Discharge (POD)"
+
+   - container_count:
+     "Container Count", "Total Containers",
+     "No. of Containers", "Number of Containers"
+
+   - gross_weight_kg:
+     "Gross Weight", "Gross Wt", "Gross Wt (kgs)",
+     "Gross Weight (KG)"
 
 SCHEMA:
 

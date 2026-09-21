@@ -43,7 +43,7 @@ from loader import Inbox  # noqa: E402
 # aborts the pipeline. Review-case persistence is opt-in via --save-review.
 try:
     from human_review import create_review_case, normalize_review_reason
-    from review_store import save_review_case
+    from review_store import save_review_case, load_review_cases
     _HUMAN_REVIEW_AVAILABLE = True
 except ImportError:
     _HUMAN_REVIEW_AVAILABLE = False
@@ -298,6 +298,18 @@ def run(source: str, limit: int = 0, output_path: str = "submission.json",
     """
     emails, inbox = _load_emails(source, limit)
 
+    # Find cases where a human requested retry
+    retry_ids = set()
+
+    if save_review and _HUMAN_REVIEW_AVAILABLE:
+        review_cases = load_review_cases()
+
+        retry_ids = {
+            case.get("email_id")
+            for case in review_cases
+            if case.get("status") == "RETRY_REQUESTED"
+        }
+
     # In HTTP mode we need an adapter to materialize attachments locally.
     adapter = None
     if inbox.is_http:
@@ -309,6 +321,10 @@ def run(source: str, limit: int = 0, output_path: str = "submission.json",
     start = time.time()
     for i, email in enumerate(emails, 1):
         eid = email.get("email_id") or email.get("id") or f"email_{i:03d}"
+
+        if eid in retry_ids:
+            log.info("retrying human-review case email_id=%s", eid)
+
         log.info("[%d/%d] processing %s", i, len(emails), eid)
         try:
             sub_entry = process_email(email, bundle_path=source,
