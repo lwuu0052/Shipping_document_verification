@@ -39,20 +39,50 @@ CLASSIFICATION_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         "You are an AI email triage assistant for a shipping and logistics company. "
-        "Analyze the email subject, body, and attachment filenames to determine the sender's primary intent.\n\n"
-        "Categories:\n"
-        "- document_comparison_request: Sender wants to compare, cross-check, or verify Shipping Instructions (SI) against a Bill of Lading (BL).\n"
-        "- new_si_request: Sender is submitting or requesting to issue a new Shipping Instruction.\n"
-        "- invoice_query: Inquiries regarding billing, freight charges, payment status, or invoices.\n"
-        "- spam: Unsolicited sales, phishing, marketing, or irrelevant spam messages.\n"
-        "- general_message: General inquiries, greetings, or logistics questions that do not fit the other categories."
+        "Analyze the email subject, body, and attachment filenames to determine "
+        "the sender's primary intent.\n\n"
+
+        "Categories:\n\n"
+
+        "- document_comparison_request: Sender wants to compare, cross-check, or "
+        "verify Shipping Instructions (SI) against a Bill of Lading (BL).\n\n"
+
+        "- new_si_request: Sender is FORMALLY submitting a new Shipping Instruction, "
+        "or providing complete cargo/container details to issue one.\n"
+        "  CRITICAL: Asking WHEN an SI will be ready, chasing status, general cargo "
+        "updates, or casual logistics questions are general_message, NOT new_si_request.\n\n"
+
+        "- invoice_query: Inquiries regarding billing, freight charges, debit/credit "
+        "notes, payment status, or invoices.\n\n"
+
+        "- spam: Malicious phishing, suspicious links, or non-logistics commercial "
+        "ads (SEO services, casino, loans).\n"
+        "  CRITICAL: Vessel schedule updates, port delay advisories, holiday notices, "
+        "and system-generated logistics newsletters are general_message, NOT spam.\n\n"
+
+        "- general_message: Catch-all. Status updates, vessel schedules, container "
+        "tracking, ETA/ETD queries, automated notices, greetings, follow-ups, or "
+        "anything ambiguous.\n\n"
+
+        "ATTACHMENT RULES (filenames override body wording):\n"
+        "- Both a *_SI.* and a *_BL.* file are attached -> document_comparison_request\n"
+        "- Only a *_SI.* file, and the sender is submitting it -> new_si_request\n\n"
+
+        "PRIORITY RULE:\n"
+        "If an email matches multiple categories, pick the highest in this hierarchy:\n"
+        "document_comparison_request > new_si_request > invoice_query > spam > general_message\n\n"
+
+        "TIE-BREAKER:\n"
+        "When torn between document_comparison_request and general_message, choose "
+        "document_comparison_request. A false positive is cheap (the comparison simply "
+        "finds no defect), but a false negative means a document error is never caught."
     ),
     (
         "human",
         "Email Subject: {subject}\n"
         "Email Body:\n{body}\n"
         "Attachment Names: {attachments}\n"
-    )
+    ),
 ])
 
 @lru_cache(maxsize=1)
@@ -109,31 +139,3 @@ def classify_email(email: dict):
         "category": final_category,
         "should_process": (final_category == CATEGORY_BL_COMPARISON),
     }
-
-
-# if __name__ == "__main__":
-#     from functools import lru_cache
-#     import sys
-
-#     sys.path.insert(
-#       0,
-#       os.path.abspath(
-#           os.path.join(os.path.dirname(__file__), "..", "sdoc-hackathon-bundle")
-#       ),
-#     )
-
-#     from loader import Inbox
-
-#     bundle_path = os.path.abspath(
-#       os.path.join(os.path.dirname(__file__), "..", "sdoc-hackathon-bundle")
-#     )
-#     inbox = Inbox(bundle_path)
-#     print(f"Total emails: {len(inbox.emails())}\n")
-
-
-#     for email in list(inbox)[:5]:
-#       res = classify_email(email)
-#       print(
-#         f"[{res['email_id']}] Category: {res['category']} | Process:"
-#         f" {res['should_process']}"
-#     )
