@@ -38,7 +38,7 @@ REASON_MAPPING = {
     "field_null": "missing_value",
     "missing_value": "missing_value",
 
-    "pairing_failed": "missing_attachment",
+    "pairing_failed": "wrong_doc_type",
     "processing_error": "unreadable",
 }
 

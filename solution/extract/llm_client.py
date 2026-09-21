@@ -42,7 +42,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Model name passed to generate_content(). The factory returns a genai.Client
 # without a bound model, so we supply it here. Override via LLM_MODEL.
-MODEL_NAME = os.environ.get("LLM_MODEL", "gemini-3.6-flash")
+MODEL_NAME = os.environ.get("LLM_MODEL", "gpt-4o-mini")
 MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "4096"))
 # Base delay between retries. Multiplied by 2^(attempt-1) for transient errors.
 RETRY_DELAY_SECONDS = float(os.environ.get("LLM_RETRY_DELAY", "1.5"))
@@ -146,38 +146,22 @@ def parse_llm_response(raw_text: str) -> dict:
 # Backend selection
 # ---------------------------------------------------------------------------
 def _call_via_factory(doc_text: str, doc_type: str) -> str:
-    """Call Gemini through the shared llm_factory."""
+    """Use OpenAI for text field extraction."""
 
     try:
-        from llm_factory import get_llm
-    except ImportError as e:
-        raise ExtractionError(
-            detail="llm_factory not importable"
-        ) from e
+        from langchain_openai import ChatOpenAI
 
-    try:
-        client = get_llm(
-            model_name=MODEL_NAME,
-            temperature=0.0
-        )
-    except Exception as e:
-        raise ExtractionError(
-            detail=f"LLM factory init failed: {e}"
-        ) from e
-
-    try:
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=user_prompt(doc_text, doc_type),
-            config={
-                "system_instruction": SYSTEM_PROMPT,
-                "max_output_tokens": MAX_TOKENS,
-                "response_mime_type": "application/json",
-                "temperature": 0.0,
-            },
+        llm = ChatOpenAI(
+            model="gpt-4o-mini",
+            temperature=0,
         )
 
-        raw = response.text
+        response = llm.invoke([
+            ("system", SYSTEM_PROMPT),
+            ("human", user_prompt(doc_text, doc_type)),
+        ])
+
+        raw = response.content
 
     except Exception as e:
         raise ExtractionError(
@@ -189,7 +173,7 @@ def _call_via_factory(doc_text: str, doc_type: str) -> str:
             detail="LLM returned empty content"
         )
 
-    return raw
+    return str(raw)
 
 
 # ---------------------------------------------------------------------------

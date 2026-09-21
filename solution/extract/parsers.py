@@ -138,36 +138,144 @@ def _read_xlsx(path: Path) -> str:
                          f"workbook {path.name} has no readable content")
     return text
 
+def _read_xls(path: Path) -> str:
+    """Flatten a legacy .xls workbook into plain text."""
+    try:
+        import xlrd
+    except ImportError as e:
+        raise ParseError(
+            REASON_PARSE_ERROR,
+            "xlrd is required to read .xls attachments",
+        ) from e
+
+    try:
+        wb = xlrd.open_workbook(path)
+    except Exception as e:
+        raise ParseError(
+            REASON_PARSE_ERROR,
+            f"failed to open workbook {path.name}: {e}",
+        ) from e
+
+    chunks: list[str] = []
+    total_rows = 0
+
+    for sheet in wb.sheets():
+        chunks.append(f"=== SHEET: {sheet.name} ===")
+
+        for row_idx in range(sheet.nrows):
+            cells = [
+                str(sheet.cell_value(row_idx, col_idx)).strip()
+                for col_idx in range(sheet.ncols)
+            ]
+
+            if any(cells):
+                chunks.append("\t".join(cells))
+                total_rows += 1
+
+        chunks.append("")
+
+    if total_rows == 0:
+        raise ParseError(
+            REASON_PARSE_ERROR,
+            f"workbook {path.name} has no readable content",
+        )
+
+    return "\n".join(chunks).strip()
+
+def _read_docx(path: Path) -> str:
+    """Extract text and table contents from a Word .docx file."""
+    try:
+        from docx import Document
+    except ImportError as e:
+        raise ParseError(
+            REASON_PARSE_ERROR,
+            "python-docx is required to read .docx attachments",
+        ) from e
+
+    try:
+        doc = Document(path)
+    except Exception as e:
+        raise ParseError(
+            REASON_PARSE_ERROR,
+            f"failed to open Word document {path.name}: {e}",
+        ) from e
+
+    chunks: list[str] = []
+
+    # Normal paragraphs
+    for paragraph in doc.paragraphs:
+        text = paragraph.text.strip()
+        if text:
+            chunks.append(text)
+
+    # Tables
+    for table in doc.tables:
+        for row in table.rows:
+            cells = [
+                cell.text.strip().replace("\n", " | ")
+                for cell in row.cells
+            ]
+            if any(cells):
+                chunks.append("\t".join(cells))
+
+    text = "\n".join(chunks).strip()
+
+    if not text:
+        raise ParseError(
+            REASON_PARSE_ERROR,
+            f"Word document {path.name} has no readable content",
+        )
+
+    return text
+
 
 def _read_pdf(path: Path) -> str:
-    """Extract text from a PDF using pdfplumber.
+    """Extract text from a PDF.
 
-    Empty text from every page => scanned image => parse_error. We do not
-    attempt OCR here; the spec says scanned docs go to escalation.
+    Prefer pypdf because it preserves form blocks cleanly and can recover
+    some PDFs with imperfect xref pointers. Fall back to pdfplumber. Empty
+    text means an image-only/scanned PDF and is escalated.
     """
-    try:
-        import pdfplumber  # lazy import
-    except ImportError as e:  # pragma: no cover - env dependent
-        raise ParseError(REASON_PARSE_ERROR,
-                         "pdfplumber is required to read .pdf attachments") from e
+    errors: list[str] = []
 
-    pages_text: list[str] = []
     try:
-        with pdfplumber.open(path) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text() or ""
-                pages_text.append(page_text)
-    except Exception as e:
-        raise ParseError(REASON_PARSE_ERROR,
-                         f"failed to read pdf {path.name}: {e}") from e
+        from pypdf import PdfReader
+        try:
+            reader = PdfReader(str(path), strict=False)
+            text = "\n".join((page.extract_text() or "") for page in reader.pages).strip()
+            if text:
+                return text
+        except Exception as e:
+            errors.append(f"pypdf: {e}")
+    except ImportError:
+        errors.append("pypdf not installed")
 
-    text = "\n".join(p for p in pages_text if p).strip()
-    if not text:
-        # Scanned image PDF — no text layer. Raise a typed error so the
-        # orchestrator can route to the multimodal LLM fallback (Gemini
-        # reads the rendered page image directly, no separate OCR step).
-        raise ScannedPdfError(path)
-    return text
+    try:
+        import pdfplumber
+        try:
+            with pdfplumber.open(path) as pdf:
+                text = "\n".join((page.extract_text() or "") for page in pdf.pages).strip()
+            if text:
+                return text
+        except Exception as e:
+            errors.append(f"pdfplumber: {e}")
+    except ImportError:
+        errors.append("pdfplumber not installed")
+
+    # If a parser opened the file but there was no text layer, treat it as a
+    # scan. Corrupt/truncated PDFs instead become a normal parse_error.
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(str(path), strict=False)
+        if reader.pages and not any((page.extract_text() or "").strip() for page in reader.pages):
+            raise ScannedPdfError(path)
+    except ScannedPdfError:
+        raise
+    except Exception:
+        pass
+
+    detail = "; ".join(errors) if errors else "no PDF parser available"
+    raise ParseError(REASON_PARSE_ERROR, f"failed to read pdf {path.name}: {detail}")
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +285,8 @@ def _read_pdf(path: Path) -> str:
 _DISPATCH: dict[str, Callable[[Path], str]] = {
     ".txt": _read_txt,
     ".xlsx": _read_xlsx,
-    ".xls": _read_xlsx,
+    ".xls": _read_xls,
+    ".docx": _read_docx,
     ".pdf": _read_pdf,
 }
 
