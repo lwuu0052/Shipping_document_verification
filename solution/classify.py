@@ -44,13 +44,28 @@ CLASSIFICATION_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         "You are an AI email triage assistant for a shipping and logistics company. "
-        "Analyze the email subject, body, and attachment filenames to determine the sender's primary intent.\n\n"
+        "Analyze the email subject, body, and attachment filenames to determine "
+        "the sender's primary intent.\n\n"
+
         "Categories:\n"
-        "- document_comparison_request: Sender wants to compare, cross-check, or verify Shipping Instructions (SI) against a Bill of Lading (BL).\n"
-        "- new_si_request: Sender is submitting or requesting to issue a new Shipping Instruction.\n"
-        "- invoice_query: Inquiries regarding billing, freight charges, payment status, or invoices.\n"
+        "- document_comparison_request: Sender wants to compare, cross-check, "
+        "or verify Shipping Instructions (SI) against a Bill of Lading (BL).\n"
+        "- new_si_request: Sender is submitting or requesting to issue a new "
+        "Shipping Instruction.\n"
+        "- invoice_query: Inquiries regarding billing, freight charges, payment "
+        "status, or invoices.\n"
         "- spam: Unsolicited sales, phishing, marketing, or irrelevant spam messages.\n"
-        "- general_message: General inquiries, greetings, or logistics questions that do not fit the other categories."
+        "- general_message: General inquiries, greetings, or logistics questions "
+        "that do not fit the other categories.\n\n"
+
+        "Important rules:\n"
+        "- Determine intent from the full email, not the subject alone.\n"
+        "- The subject may be vague, outdated, or misleading.\n"
+        "- If the subject conflicts with an explicit request in the email body, "
+        "prioritize the explicit request in the body.\n"
+        "- Attachment filenames are supporting evidence only and may be generic.\n"
+        "- If the body explicitly asks to compare, verify, cross-check, or check "
+        "an SI against a BL, classify it as document_comparison_request."
     ),
     (
         "human",
