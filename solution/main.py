@@ -317,7 +317,8 @@ def _load_emails(source: str, limit: int = 0) -> tuple[list[dict], Inbox]:
 
 
 def run(source: str, limit: int = 0, output_path: str = "submission.json",
-        submit: bool = False, save_review: bool = False) -> dict:
+        submit: bool = False, save_review: bool = False,
+        workers: int = 1) -> dict:
     """Process all emails and write submission.json. Returns the submission.
 
     If ``submit`` is True and ``source`` is an HTTP URL, also POST the
@@ -346,27 +347,49 @@ def run(source: str, limit: int = 0, output_path: str = "submission.json",
 
     submission: dict[str, dict] = {}
     start = time.time()
-    for i, email in enumerate(emails, 1):
-        eid = email.get("email_id") or email.get("id") or f"email_{i:03d}"
 
+    def _process_one(item):
+        i, email = item
+        eid = email.get("email_id") or email.get("id") or f"email_{i:03d}"
         if eid in retry_ids:
             log.info("retrying human-review case email_id=%s", eid)
-
         log.info("[%d/%d] processing %s", i, len(emails), eid)
         try:
             sub_entry = process_email(email, bundle_path=source,
                                       adapter=adapter,
                                       save_review=save_review)
-            submission[eid] = sub_entry
+            return eid, sub_entry
         except Exception as e:
             log.exception("unhandled failure email_id=%s", eid)
-            submission[eid] = {
+            return eid, {
                 "category": "BL_COMPARISON",
                 "status": STATUS_NEEDS_REVIEW,
                 "review_reason": REVIEW_UNREADABLE,
                 "defect_fields": [],
                 "has_defect": False,
             }
+
+    if workers > 1:
+        log.info("parallel mode: %d workers", workers)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_process_one, (i, e))
+                       for i, e in enumerate(emails, 1)]
+            done_count = 0
+            for fut in as_completed(futures):
+                eid, sub_entry = fut.result()
+                submission[eid] = sub_entry
+                done_count += 1
+                if done_count % 20 == 0:
+                    elapsed = time.time() - start
+                    rate = done_count / elapsed
+                    remaining = (len(emails) - done_count) / max(rate, 0.01)
+                    log.info("progress %d/%d (%.1fs, %.1f/s, ETA %.0fs)",
+                             done_count, len(emails), elapsed, rate, remaining)
+    else:
+        for i, email in enumerate(emails, 1):
+            eid, sub_entry = _process_one((i, email))
+            submission[eid] = sub_entry
 
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(submission, f, indent=2, ensure_ascii=False)
@@ -407,6 +430,9 @@ def main():
                         "(only with --http)")
     p.add_argument("--save-review", action="store_true",
                    help="persist human-review cases (requires human_review)")
+    p.add_argument("--workers", type=int, default=1,
+                   help="parallel worker count (default 1 = sequential; "
+                        "try 10 for ~10x speedup with paid API tiers)")
     args = p.parse_args()
 
     if args.http:
@@ -415,7 +441,8 @@ def main():
         source = args.bundle
 
     run(source=source, limit=args.limit, output_path=args.out,
-        submit=args.submit, save_review=args.save_review)
+        submit=args.submit, save_review=args.save_review,
+        workers=args.workers)
 
 
 if __name__ == "__main__":

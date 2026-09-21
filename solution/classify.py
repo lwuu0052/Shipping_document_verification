@@ -45,7 +45,14 @@ CLASSIFICATION_PROMPT = ChatPromptTemplate.from_messages([
         "Categories:\n\n"
 
         "- document_comparison_request: Sender wants to compare, cross-check, or "
-        "verify Shipping Instructions (SI) against a Bill of Lading (BL).\n\n"
+        "verify Shipping Instructions (SI) against a Bill of Lading (BL). "
+        "This ALSO includes emails that REQUEST a draft BL to be sent for checking "
+        "(e.g. 'please assist to send the draft BL for <booking> for checking', "
+        "'please compare the SI and draft BL') even when no attachments are present "
+        "— the intent is still about BL verification/review.\n"
+        "  CRITICAL: An email that SUBMITS a Shipping Instruction in the body "
+        "(e.g. 'Please find Shipping instruction for <booking>') is new_si_request, "
+        "NOT document_comparison_request — even though it mentions shipping docs.\n\n"
 
         "- new_si_request: Sender is FORMALLY submitting a new Shipping Instruction, "
         "or providing complete cargo/container details to issue one.\n"
@@ -66,7 +73,9 @@ CLASSIFICATION_PROMPT = ChatPromptTemplate.from_messages([
 
         "ATTACHMENT RULES (filenames override body wording):\n"
         "- Both a *_SI.* and a *_BL.* file are attached -> document_comparison_request\n"
-        "- Only a *_SI.* file, and the sender is submitting it -> new_si_request\n\n"
+        "- Only a *_SI.* file, and the sender is submitting it -> new_si_request\n"
+        "- No attachments but body mentions 'draft BL' or asks to compare/verify "
+        "BL -> still document_comparison_request (the request itself is BL-related)\n\n"
 
         "PRIORITY RULE:\n"
         "If an email matches multiple categories, pick the highest in this hierarchy:\n"
