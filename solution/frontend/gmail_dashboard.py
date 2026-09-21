@@ -46,12 +46,15 @@ class InboxDashboard:
 
 if __name__ == '__main__':
     application = InboxDashboard()
-    port = int(os.environ.get('INBOX_PORT', '8001'))
-    print(f'Inbox dashboard: http://localhost:{port}', flush=True)
+    # Cloud Run (and most PaaS hosts) inject PORT and expect the process to
+    # bind 0.0.0.0. INBOX_PORT/127.0.0.1 stay as the local-dev default.
+    port = int(os.environ.get('PORT') or os.environ.get('INBOX_PORT', '8001'))
+    host = '0.0.0.0' if os.environ.get('PORT') else '127.0.0.1'
+    print(f'Inbox dashboard: http://{host}:{port}', flush=True)
     print('Use only one dashboard server for processing at a time.', flush=True)
     try:
         from waitress import serve
-        serve(application, host='127.0.0.1', port=port)
+        serve(application, host=host, port=port)
     except ImportError:
         from wsgiref.simple_server import make_server
-        make_server('127.0.0.1', port, application).serve_forever()
+        make_server(host, port, application).serve_forever()
