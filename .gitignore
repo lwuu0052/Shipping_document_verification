@@ -12,6 +12,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+.http_cache
+__pycache__
 
 # ==========================================
 # (Virtual Environments)
