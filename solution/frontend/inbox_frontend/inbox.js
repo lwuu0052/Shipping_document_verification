@@ -43,7 +43,7 @@ function renderRows() {
   byId('next-page').disabled=(page+1)*pageSize>=filtered.length;
   byId('select-all').checked=visible.length>0&&visible.every(e=>selected.has(e.email_id));
   byId('select-all').indeterminate=visible.some(e=>selected.has(e.email_id))&&!byId('select-all').checked;
-  byId('process-selected').disabled=selected.size===0||Boolean(state?.job.running);
+  byId('process-selected').disabled=selected.size===0||Boolean(state?.job.running)||Boolean(state?.read_only);
   byId('process-selected').textContent=selected.size?`Verify selected (${selected.size})`:'Verify selected';
   byId('mail-list').innerHTML=visible.length?visible.map(e=>{
     const sender=(e.sender||e.email_id).split('@')[0];
@@ -64,10 +64,10 @@ function renderSummary() {
   byId('metric-review').textContent=byId('count-review').textContent=review;
   byId('action-count').textContent=mismatch+review;
   byId('connection').textContent='Workspace connected';
-  byId('process-all').disabled=state.job.running;
+  byId('process-all').disabled=state.job.running||state.read_only;
   byId('job-progress').textContent=state.job.running?`Verifying ${state.job.completed} / ${state.job.total}`:'';
-  byId('cloud-status').textContent=state.cloud_configured?'GEMINI_API_KEY and OPENAI_API_KEY are configured. Ready to verify documents.':'Missing GEMINI_API_KEY or OPENAI_API_KEY. Add both to .env, then restart the server.';
-  byId('mode-label').textContent=state.cloud_configured?'Live pipeline':'Not configured';
+  byId('cloud-status').textContent=state.read_only?'This deployment is read-only — results were pre-computed and verification is disabled here.':state.cloud_configured?'GEMINI_API_KEY and OPENAI_API_KEY are configured. Ready to verify documents.':'Missing GEMINI_API_KEY or OPENAI_API_KEY. Add both to .env, then restart the server.';
+  byId('mode-label').textContent=state.read_only?'Read-only demo':state.cloud_configured?'Live pipeline':'Not configured';
   if(state.job.error) notify(state.job.error);
 }
 async function refresh(force=false) {
@@ -103,7 +103,7 @@ async function openEmail(id) {
     const data=await api('/api/email/'+encodeURIComponent(id));current=data;
     const e=data.email,r=data.report;
     byId('reader-id').textContent=id;
-    byId('retry').disabled=Boolean(state?.job.running);
+    byId('retry').disabled=Boolean(state?.job.running)||Boolean(state?.read_only);
     let html=`<h2>${escapeHTML(e.subject)}</h2><div class="reader-meta"><span>From ${escapeHTML(e.from)}</span>${pill(r?.status||'PENDING',r?statusLabel(r):'Pending')}<span>${escapeHTML(r?.mode||'Not processed')}${r?.human_reviewed?' · Human reviewed':''}</span></div><details><summary>Read message</summary><pre>${escapeHTML(e.body)}</pre></details><div>${e.attachments.map((path,index)=>`<a class="attachment-link" href="/api/attachment?email_id=${encodeURIComponent(id)}&index=${index}">▤ ${escapeHTML(path.split('/').pop())}</a>`).join('')||'<p class="report-notice">No attachments were supplied with this email.</p>'}</div>`;
     if(r){
       html+=`<p class="report-notice">${escapeHTML(categoryNames[r.category]||r.category)} · ${escapeHTML(r.classification_reason||'')}</p>`;
@@ -118,6 +118,7 @@ async function openEmail(id) {
 }
 function settings(){byId('settings').showModal();}
 async function run(ids) {
+  if(state.read_only){notify('This deployment is read-only — verification is disabled here.');return;}
   if(!state.cloud_configured){settings();notify('Add GEMINI_API_KEY and OPENAI_API_KEY to .env, then restart the server.');return;}
   const count=ids?ids.length:state.emails.length;
   if(!confirm(`Verify ${count} email${count===1?'':'s'}? Existing reports for these emails will be replaced. This calls Gemini and OpenAI and uses API credits.`))return;
