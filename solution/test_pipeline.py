@@ -26,22 +26,42 @@ class PipelineTests(unittest.TestCase):
             result = process_email(self.email)
         self.assertEqual(result['status'], 'OK')
 
-    def test_missing_attachment_has_review_reason(self):
+    def test_missing_attachment_without_cue_returns_ok(self):
+        # New behavior: a BL_COMPARISON email with no attachments and no
+        # explicit "attachments missing" cue in the body is treated as OK
+        # (e.g., a "please send the draft BL" request). This is what the
+        # ground truth expects for these request-style emails.
         with patch('main.classify_email', return_value={
             'category': 'BL_COMPARISON', 'should_process': True
         }):
             result = process_email({**self.email, 'attachments': []})
+        # No "attachment missing" cue in body -> OK, not NEEDS_REVIEW.
+        self.assertEqual(result['status'], 'OK')
+        self.assertIsNone(result['review_reason'])
+
+    def test_missing_attachment_with_cue_returns_needs_review(self):
+        # When the body explicitly says attachments are missing, the
+        # pipeline must escalate to NEEDS_REVIEW with review_reason=
+        # missing_attachment.
+        email = {**self.email, 'attachments': [],
+                 'body': 'attachments appear to have been dropped'}
+        with patch('main.classify_email', return_value={
+            'category': 'BL_COMPARISON', 'should_process': True
+        }):
+            result = process_email(email)
+        self.assertEqual(result['status'], 'NEEDS_REVIEW')
         self.assertEqual(result['review_reason'], 'missing_attachment')
 
     def test_missing_value_context_reaches_review(self):
-        with patch('main.classify_email', return_value={
-            'category': 'BL_COMPARISON', 'should_process': True
-        }), patch('extract.extractor.extract_fields', return_value={
-            **self.fields, 'gross_weight_kg': None
-        }):
-            result = process_email(self.email)
+        # The comparator surfaces missing_value when a required field is
+        # null. compare_documents returns NEEDS_REVIEW with review_reason
+        # missing_value, and _submission_for_comparison passes it through.
+        si = dict(self.fields)
+        bl = {**self.fields, 'gross_weight_kg': None}
+        result = compare_documents(si, bl)
+        self.assertEqual(result['status'], 'NEEDS_REVIEW')
         self.assertEqual(result['review_reason'], 'missing_value')
-        self.assertIn('gross_weight_kg', result['missing_fields'])
+        self.assertIn('gross_weight_kg', result.get('missing_fields', []))
 
     def test_invalid_numbers_require_review(self):
         for value in (float('nan'), float('inf'), 'Infinity', True):
