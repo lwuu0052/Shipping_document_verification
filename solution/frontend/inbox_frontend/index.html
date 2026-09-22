@@ -84,8 +84,12 @@
           </div>
           <div class="heading-actions">
             <span class="mode-chip" id="mode-label">Loading…</span
+            ><button class="outline-button" id="check-score">
+              🏆 Check score</button
             ><button class="outline-button" id="export">
-              ↓ Export results
+              ↓ Export results</button
+            ><button class="outline-button" id="export-csv">
+              ↓ Export CSV
             </button>
           </div>
         </div>
@@ -191,6 +195,7 @@
         <button class="icon-button" id="reader-close" aria-label="Close email">
           ←</button
         ><span id="reader-id"></span><span class="reader-toolbar-spacer"></span
+        ><button class="outline-button" id="export-email">↓ Export</button
         ><button class="outline-button" id="retry">↻ Reprocess</button>
       </div>
       <div id="reader-content" class="reader-content"></div>
@@ -208,8 +213,28 @@
         <p class="settings-note" id="cloud-status">
           Checking cloud configuration…
         </p>
+        <label
+          >Self-eval server URL<input
+            id="eval-url"
+            type="text"
+            placeholder="http://localhost:8080"
+        /></label>
+        <p class="settings-note">
+          Used by "Check score" to POST your current results to the
+          hackathon's self-evaluation server (e.g. the sdoc-hackathon-docker
+          container) and show the scoreboard it returns.
+        </p>
         <button class="primary-button">Done</button>
       </form>
+    </dialog>
+    <dialog id="score-dialog" class="settings">
+      <div class="dialog-heading">
+        <h2>Self-evaluation score</h2>
+        <button class="icon-button" id="score-close" aria-label="Close score">
+          ×
+        </button>
+      </div>
+      <div id="score-content"></div>
     </dialog>
     <script src="/inbox.js"></script>
   </body>

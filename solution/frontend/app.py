@@ -19,6 +19,8 @@ Two data sources feed ``self.reports``:
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
 import sys
@@ -56,6 +58,41 @@ def _json_response(start_response, payload, status="200 OK"):
         ("Content-Length", str(len(body))),
     ])
     return [body]
+
+
+def _csv_response(start_response, rows: list[dict], fieldnames: list[str], filename: str):
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(rows)
+    body = buf.getvalue().encode("utf-8-sig")  # BOM so Excel opens UTF-8 cleanly
+    start_response("200 OK", [
+        ("Content-Type", "text/csv; charset=utf-8"),
+        ("Content-Length", str(len(body))),
+        ("Content-Disposition", f'attachment; filename="{filename}"'),
+    ])
+    return [body]
+
+
+def _differences_text(report: dict) -> str:
+    """Human-readable explanation of what differs, mirroring
+    comparator.compare_documents()'s own ``differences`` dict
+    ({field: {"si": ..., "bl": ...}}) — built from the live-verified
+    ``rows`` when available, since submission.json's baseline only stores
+    field *names*, not the actual SI/BL values that differed.
+    """
+    rows = report.get("rows")
+    if rows:
+        parts = [
+            f"{row['field']}: SI='{row['si']}' vs BL='{row['bl']}'"
+            for row in rows if row.get("result") == "MISMATCH"
+        ]
+        if parts:
+            return "; ".join(parts)
+    defect_fields = report.get("defect_fields") or []
+    if defect_fields:
+        return f"{', '.join(defect_fields)} (re-verify this email to see the actual SI/BL values)"
+    return ""
 
 
 def _report_from_submission_entry(sub: dict) -> dict:
@@ -257,6 +294,8 @@ class Application:
             return self._run_endpoint(environ, start_response)
         if path == "/api/export" and method == "GET":
             return self._export(start_response)
+        if path == "/api/export.csv" and method == "GET":
+            return self._export_csv(environ, start_response)
         if path == "/api/check-score" and method == "POST":
             return self._check_score(environ, start_response)
 
@@ -370,6 +409,38 @@ class Application:
 
     def _export(self, start_response):
         return _json_response(start_response, self._build_submission())
+
+    def _export_csv(self, environ, start_response):
+        qs = parse_qs(environ.get("QUERY_STRING", ""))
+        only_id = (qs.get("email_id") or [None])[0]
+
+        fieldnames = ["email_id", "subject", "category", "status",
+                      "review_reason", "has_defect", "defect_fields", "differences"]
+        rows = []
+        for e in self.emails:
+            email_id = e["email_id"]
+            if only_id and email_id != only_id:
+                continue
+            report = self.reports.get(email_id) or {
+                "category": "GENERAL", "status": "OK", "review_reason": None,
+                "has_defect": False, "defect_fields": [],
+            }
+            rows.append({
+                "email_id": email_id,
+                "subject": e.get("subject", ""),
+                "category": report.get("category", "GENERAL"),
+                "status": report.get("status", "OK"),
+                "review_reason": report.get("review_reason") or "",
+                "has_defect": report.get("has_defect", False),
+                "defect_fields": ", ".join(report.get("defect_fields") or []),
+                "differences": _differences_text(report),
+            })
+
+        if only_id and not rows:
+            return _json_response(start_response, {"error": "unknown email_id"}, "404 Not Found")
+
+        filename = f"{only_id}.csv" if only_id else "submission.csv"
+        return _csv_response(start_response, rows, fieldnames, filename)
 
     def _check_score(self, environ, start_response):
         try:

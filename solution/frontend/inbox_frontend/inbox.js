@@ -7,12 +7,37 @@ let state = null, folder = 'all', actionOnly = false, page = 0, selected = new S
 const pageSize = 10;
 let stars = new Set();
 try { stars = new Set(JSON.parse(localStorage.getItem('harborcheck-stars') || '[]')); } catch (_) {}
+try { byId('eval-url').value = localStorage.getItem('harborcheck-eval-url') || 'http://localhost:8080'; } catch (_) {}
 function notify(text) { byId('toast').textContent = text; }
 function statusLabel(email) {
   if(email.error) return 'Processing error';
   return {OK:email.category==='BL_COMPARISON'?'Matched':'Classified',MISMATCH:'Mismatch',NEEDS_REVIEW:'Needs review',PENDING:'Pending'}[email.status] || email.status;
 }
 function pill(status,label) { return `<span class="status-pill ${escapeHTML(status)}">${status==='OK'?'✓':status==='NEEDS_REVIEW'?'◷':status==='MISMATCH'?'⚑':'·'} ${escapeHTML(label || status)}</span>`; }
+function reviewReasonText(reason) {
+  return {
+    wrong_doc_type: "The attached document doesn't look like the expected type (e.g. an invoice instead of a Bill of Lading).",
+    missing_attachment: 'A required attachment is missing.',
+    unreadable: 'The document could not be read (unsupported format or unreadable content).',
+    missing_value: 'One or more required fields could not be found in the documents.',
+  }[reason] || reason;
+}
+async function downloadFile(url, filename, successMessage) {
+  try {
+    const response = await fetch(url);
+    if(!response.ok){
+      let message = `Request failed (${response.status})`;
+      try { message = (await response.json()).error || message; } catch(_) {}
+      throw new Error(message);
+    }
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl; link.download = filename; link.click();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    notify(successMessage);
+  } catch(error) { notify(error.message); }
+}
 async function api(path, body) {
   const options = body === undefined ? {} : {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
   const response = await fetch(path,options);
@@ -108,8 +133,10 @@ async function openEmail(id) {
       html+=`<p class="report-notice">${escapeHTML(categoryNames[r.category]||r.category)} · ${escapeHTML(r.classification_reason||'')}</p>`;
       if(r.error)html+=`<p class="report-notice error">Processing failed: ${escapeHTML(r.error)}</p>`;
       if(r.review_detail)html+=`<p class="report-notice">${escapeHTML(r.review_detail)}</p>`;
+      else if(r.review_reason)html+=`<p class="report-notice">◷ ${escapeHTML(reviewReasonText(r.review_reason))}</p>`;
       if(r.category==='BL_COMPARISON'&&r.status==='OK')html+='<p class="report-notice">✓ No mismatch detected. All seven fields agree.</p>';
       if(r.rows?.length)html+=`<h3>Shipment comparison</h3><div class="table-wrap"><table><thead><tr><th>Field</th><th>SI · Reference</th><th>BL · Draft</th><th>Result</th></tr></thead><tbody>${r.rows.map(row=>`<tr><td>${escapeHTML(row.field.replaceAll('_',' '))}</td><td>${escapeHTML(row.si??'Missing')}</td><td>${escapeHTML(row.bl??'Missing')}</td><td>${pill(row.result==='MATCH'?'OK':row.result,row.result==='MATCH'?'Match':row.result==='MISMATCH'?'Mismatch':'Review')}<details><summary>Evidence</summary><b>SI</b><pre>${escapeHTML(row.si_evidence)}</pre><b>BL</b><pre>${escapeHTML(row.bl_evidence)}</pre></details></td></tr>`).join('')}</tbody></table></div>`;
+      else if(r.defect_fields?.length)html+=`<p class="report-notice"><strong>⚑ Mismatched fields:</strong> ${r.defect_fields.map(f=>escapeHTML(f.replaceAll('_',' '))).join(', ')}. <em>Reprocess this email to see the actual SI vs BL values.</em></p>`;
     } else html+='<p class="report-notice">This message has not been processed. Choose Reprocess to classify it and check any shipping documents.</p>';
     byId('reader-content').innerHTML=html;
     if(!byId('reader').open)byId('reader').showModal();
@@ -145,4 +172,25 @@ byId('menu-toggle').onclick=()=>document.body.classList.toggle('sidebar-hidden')
 byId('process-all').onclick=()=>state&&run();byId('process-selected').onclick=()=>run([...selected]);
 byId('retry').onclick=()=>current&&run([current.email.email_id]);byId('reader-close').onclick=()=>byId('reader').close();
 byId('export').onclick=async()=>{try{const data=await api('/api/export');const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='submission.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);notify('Exported submission.json.');}catch(error){notify(error.message);}};
+byId('export-csv').onclick=()=>downloadFile('/api/export.csv','submission.csv','Exported submission.csv.');
+byId('export-email').onclick=()=>current&&downloadFile(`/api/export.csv?email_id=${encodeURIComponent(current.email.email_id)}`,`${current.email.email_id}.csv`,`Exported ${current.email.email_id}.csv.`);
+function pct(v){return ((v||0)*100).toFixed(1)+'%';}
+function renderScore(result){
+  if(result.error){byId('score-content').innerHTML=`<p class="report-notice error">${escapeHTML(result.error)}</p>`;byId('score-dialog').showModal();return;}
+  const s1=result.stage1||{},s3=result.stage3||{},rel=result.reliability||{},e2e=result.end_to_end||{};
+  byId('score-content').innerHTML=`<p class="report-notice"><strong>Final score: ${pct(result.final_score)}</strong> · ${result.n_emails ?? '?'} emails scored</p>`+
+    `<h3>Classification</h3><p>Accuracy ${pct(s1.accuracy)} · Macro F1 ${pct(s1.macro_f1)}</p>`+
+    `<h3>Defect detection</h3><p>Precision ${pct(s3.defect_precision)} · Recall ${pct(s3.defect_recall)} · F1 ${pct(s3.defect_f1)} · Exact field match ${pct(s3.exact_match_rate)}</p>`+
+    `<h3>End-to-end (headline)</h3><p>${e2e.success ?? 0} / ${e2e.total ?? 0} planted defects caught exactly (${pct(e2e.rate)})</p>`+
+    `<h3>Reliability (human review)</h3><p>Escalation recall ${pct(rel.escalation_recall)} · precision ${pct(rel.escalation_precision)} · F1 ${pct(rel.escalation_f1)}</p>`;
+  byId('score-dialog').showModal();
+}
+byId('check-score').onclick=async()=>{
+  const evalUrl=(byId('eval-url').value||'http://localhost:8080').trim();
+  try{localStorage.setItem('harborcheck-eval-url',evalUrl);}catch(_){}
+  notify('Scoring against '+evalUrl+'…');
+  try{const result=await api('/api/check-score',{eval_url:evalUrl});renderScore(result);notify('');}
+  catch(error){notify(error.message);}
+};
+byId('score-close').onclick=()=>byId('score-dialog').close();
 refresh();setInterval(()=>refresh(),3000);

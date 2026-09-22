@@ -26,3 +26,6 @@ td,th,.reader-content pre,.reader-content summary{font-size:15px}
 .category-tag{font-size:11px}
 .status-pill{font-size:11px}
 .row-id{font-size:12px}
+#score-content h3{font-size:14px;margin:18px 0 8px;color:#111}
+#score-content p{margin:4px 0;color:#111}
+#score-content .report-notice{margin-top:0}
