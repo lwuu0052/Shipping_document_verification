@@ -14,6 +14,30 @@ function statusLabel(email) {
   return {OK:email.category==='BL_COMPARISON'?'Matched':'Classified',MISMATCH:'Mismatch',NEEDS_REVIEW:'Needs review',PENDING:'Pending'}[email.status] || email.status;
 }
 function pill(status,label) { return `<span class="status-pill ${escapeHTML(status)}">${status==='OK'?'✓':status==='NEEDS_REVIEW'?'◷':status==='MISMATCH'?'⚑':'·'} ${escapeHTML(label || status)}</span>`; }
+function reviewReasonText(reason) {
+  return {
+    wrong_doc_type: "The attached document doesn't look like the expected type (e.g. an invoice instead of a Bill of Lading).",
+    missing_attachment: 'A required attachment is missing.',
+    unreadable: 'The document could not be read (unsupported format or unreadable content).',
+    missing_value: 'One or more required fields could not be found in the documents.',
+  }[reason] || reason;
+}
+async function downloadFile(url, filename, successMessage) {
+  try {
+    const response = await fetch(url);
+    if(!response.ok){
+      let message = `Request failed (${response.status})`;
+      try { message = (await response.json()).error || message; } catch(_) {}
+      throw new Error(message);
+    }
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl; link.download = filename; link.click();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    notify(successMessage);
+  } catch(error) { notify(error.message); }
+}
 async function api(path, body) {
   const options = body === undefined ? {} : {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
   const response = await fetch(path,options);
@@ -43,7 +67,7 @@ function renderRows() {
   byId('next-page').disabled=(page+1)*pageSize>=filtered.length;
   byId('select-all').checked=visible.length>0&&visible.every(e=>selected.has(e.email_id));
   byId('select-all').indeterminate=visible.some(e=>selected.has(e.email_id))&&!byId('select-all').checked;
-  byId('process-selected').disabled=selected.size===0||Boolean(state?.job.running);
+  byId('process-selected').disabled=selected.size===0||Boolean(state?.job.running)||Boolean(state?.read_only);
   byId('process-selected').textContent=selected.size?`Verify selected (${selected.size})`:'Verify selected';
   byId('mail-list').innerHTML=visible.length?visible.map(e=>{
     const sender=(e.sender||e.email_id).split('@')[0];
@@ -64,10 +88,10 @@ function renderSummary() {
   byId('metric-review').textContent=byId('count-review').textContent=review;
   byId('action-count').textContent=mismatch+review;
   byId('connection').textContent='Workspace connected';
-  byId('process-all').disabled=state.job.running;
+  byId('process-all').disabled=state.job.running||state.read_only;
   byId('job-progress').textContent=state.job.running?`Verifying ${state.job.completed} / ${state.job.total}`:'';
-  byId('cloud-status').textContent=state.cloud_configured?'GEMINI_API_KEY and OPENAI_API_KEY are configured. Ready to verify documents.':'Missing GEMINI_API_KEY or OPENAI_API_KEY. Add both to .env, then restart the server.';
-  byId('mode-label').textContent=state.cloud_configured?'Live pipeline':'Not configured';
+  byId('cloud-status').textContent=state.read_only?'This deployment is read-only — results were pre-computed and verification is disabled here.':state.cloud_configured?'GEMINI_API_KEY and OPENAI_API_KEY are configured. Ready to verify documents.':'Missing GEMINI_API_KEY or OPENAI_API_KEY. Add both to .env, then restart the server.';
+  byId('mode-label').textContent=state.read_only?'Read-only demo':state.cloud_configured?'Live pipeline':'Not configured';
   if(state.job.error) notify(state.job.error);
 }
 async function refresh(force=false) {
@@ -103,14 +127,16 @@ async function openEmail(id) {
     const data=await api('/api/email/'+encodeURIComponent(id));current=data;
     const e=data.email,r=data.report;
     byId('reader-id').textContent=id;
-    byId('retry').disabled=Boolean(state?.job.running);
+    byId('retry').disabled=Boolean(state?.job.running)||Boolean(state?.read_only);
     let html=`<h2>${escapeHTML(e.subject)}</h2><div class="reader-meta"><span>From ${escapeHTML(e.from)}</span>${pill(r?.status||'PENDING',r?statusLabel(r):'Pending')}<span>${escapeHTML(r?.mode||'Not processed')}${r?.human_reviewed?' · Human reviewed':''}</span></div><details><summary>Read message</summary><pre>${escapeHTML(e.body)}</pre></details><div>${e.attachments.map((path,index)=>`<a class="attachment-link" href="/api/attachment?email_id=${encodeURIComponent(id)}&index=${index}">▤ ${escapeHTML(path.split('/').pop())}</a>`).join('')||'<p class="report-notice">No attachments were supplied with this email.</p>'}</div>`;
     if(r){
       html+=`<p class="report-notice">${escapeHTML(categoryNames[r.category]||r.category)} · ${escapeHTML(r.classification_reason||'')}</p>`;
       if(r.error)html+=`<p class="report-notice error">Processing failed: ${escapeHTML(r.error)}</p>`;
       if(r.review_detail)html+=`<p class="report-notice">${escapeHTML(r.review_detail)}</p>`;
+      else if(r.review_reason)html+=`<p class="report-notice">◷ ${escapeHTML(reviewReasonText(r.review_reason))}</p>`;
       if(r.category==='BL_COMPARISON'&&r.status==='OK')html+='<p class="report-notice">✓ No mismatch detected. All seven fields agree.</p>';
       if(r.rows?.length)html+=`<h3>Shipment comparison</h3><div class="table-wrap"><table><thead><tr><th>Field</th><th>SI · Reference</th><th>BL · Draft</th><th>Result</th></tr></thead><tbody>${r.rows.map(row=>`<tr><td>${escapeHTML(row.field.replaceAll('_',' '))}</td><td>${escapeHTML(row.si??'Missing')}</td><td>${escapeHTML(row.bl??'Missing')}</td><td>${pill(row.result==='MATCH'?'OK':row.result,row.result==='MATCH'?'Match':row.result==='MISMATCH'?'Mismatch':'Review')}<details><summary>Evidence</summary><b>SI</b><pre>${escapeHTML(row.si_evidence)}</pre><b>BL</b><pre>${escapeHTML(row.bl_evidence)}</pre></details></td></tr>`).join('')}</tbody></table></div>`;
+      else if(r.defect_fields?.length)html+=`<p class="report-notice"><strong>⚑ Mismatched fields:</strong> ${r.defect_fields.map(f=>escapeHTML(f.replaceAll('_',' '))).join(', ')}. <em>Reprocess this email to see the actual SI vs BL values.</em></p>`;
     } else html+='<p class="report-notice">This message has not been processed. Choose Reprocess to classify it and check any shipping documents.</p>';
     byId('reader-content').innerHTML=html;
     if(!byId('reader').open)byId('reader').showModal();
@@ -118,6 +144,7 @@ async function openEmail(id) {
 }
 function settings(){byId('settings').showModal();}
 async function run(ids) {
+  if(state.read_only){notify('This deployment is read-only — verification is disabled here.');return;}
   if(!state.cloud_configured){settings();notify('Add GEMINI_API_KEY and OPENAI_API_KEY to .env, then restart the server.');return;}
   const count=ids?ids.length:state.emails.length;
   if(!confirm(`Verify ${count} email${count===1?'':'s'}? Existing reports for these emails will be replaced. This calls Gemini and OpenAI and uses API credits.`))return;
@@ -145,6 +172,8 @@ byId('menu-toggle').onclick=()=>document.body.classList.toggle('sidebar-hidden')
 byId('process-all').onclick=()=>state&&run();byId('process-selected').onclick=()=>run([...selected]);
 byId('retry').onclick=()=>current&&run([current.email.email_id]);byId('reader-close').onclick=()=>byId('reader').close();
 byId('export').onclick=async()=>{try{const data=await api('/api/export');const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='submission.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);notify('Exported submission.json.');}catch(error){notify(error.message);}};
+byId('export-csv').onclick=()=>downloadFile('/api/export.csv','submission.csv','Exported submission.csv.');
+byId('export-email').onclick=()=>current&&downloadFile(`/api/export.csv?email_id=${encodeURIComponent(current.email.email_id)}`,`${current.email.email_id}.csv`,`Exported ${current.email.email_id}.csv.`);
 function pct(v){return ((v||0)*100).toFixed(1)+'%';}
 function renderScore(result){
   if(result.error){byId('score-content').innerHTML=`<p class="report-notice error">${escapeHTML(result.error)}</p>`;byId('score-dialog').showModal();return;}

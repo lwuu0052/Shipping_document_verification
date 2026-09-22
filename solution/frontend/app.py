@@ -1,14 +1,26 @@
 """Minimal backend for the inbox_frontend dashboard.
 
-Wires the existing pipeline (``main.process_email``, which itself chains
-classify -> extract -> compare) to the HTTP API the dashboard's inbox.js
-expects. This is intentionally a slim subset of the original HarborCheck
-project that inbox_frontend was borrowed from: no admin-token auth, no
-SQLite persistence, no offline/cloud mode switch, no human-review/audit
-trail. Reports live in memory only and are lost when the server restarts.
+Wires the pipeline (``main.classify_email`` / ``main.extract`` /
+``main.compare_documents``, plus main.py's own submission-shaping helpers)
+to the HTTP API the dashboard's inbox.js expects. Intentionally a slim
+subset of the original HarborCheck project inbox_frontend was borrowed
+from: no admin-token auth, no SQLite persistence, no offline/cloud mode
+switch, no human-review/audit trail.
+
+Two data sources feed ``self.reports``:
+  - ``solution/submission.json`` (main.py's own batch output, read-only —
+    never written back to) seeds every email with its category/status/
+    defect verdict at startup, so a Cloud Run cold start doesn't hand a
+    judge an empty inbox.
+  - Live "Verify" clicks call the pipeline directly for just that email
+    and get the richer per-field SI/BL table on top of the same verdict;
+    that richer result is cached to ``.dashboard_cache.json`` (gitignored)
+    so a warm instance survives a quick restart.
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
 import sys
@@ -20,22 +32,23 @@ from urllib.parse import parse_qs
 
 SOLUTION_ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_ROOT = SOLUTION_ROOT.parent / "sdoc-hackathon-bundle"
+# main.py's own batch output — {email_id: {category, status, review_reason,
+# has_defect, defect_fields}}. Read-only baseline; regenerate with
+# `python main.py` (see main.py's own --help for --workers etc).
+SUBMISSION_PATH = SOLUTION_ROOT / "submission.json"
+# Our own cache of live-verified, full-detail reports. Not the shared
+# submission.json — never written there, to avoid stepping on a teammate's
+# own run of `python main.py`.
+CACHE_PATH = Path(__file__).resolve().parent / ".dashboard_cache.json"
+# When set, /api/run is disabled — protects API budget on a public
+# deployment where anyone with the link could otherwise trigger real
+# Gemini/OpenAI calls. Local dev leaves this unset.
+READ_ONLY = os.environ.get("READ_ONLY", "").lower() in ("1", "true", "yes")
 
 sys.path.insert(0, str(SOLUTION_ROOT))
 
-import main as pipeline  # noqa: E402  (exposes process_email, Inbox)
+import main as pipeline  # noqa: E402
 import constants  # noqa: E402
-
-# extraction/pairing failure reason codes (extract/schema.py) -> the
-# review_reason enum the hackathon submission format expects.
-_REVIEW_REASON_MAP = {
-    "missing_attachment": "missing_attachment",
-    "pairing_failed": "wrong_doc_type",
-    "unsupported_format": "unreadable",
-    "parse_error": "unreadable",
-    "extraction_error": "unreadable",
-    "field_null": "missing_value",
-}
 
 
 def _json_response(start_response, payload, status="200 OK"):
@@ -47,53 +60,141 @@ def _json_response(start_response, payload, status="200 OK"):
     return [body]
 
 
-def _to_report(result: dict) -> dict:
-    """Turn main.process_email()'s result into the dashboard's report shape."""
-    category = result["category"]
-    status = result["status"]
+def _csv_response(start_response, rows: list[dict], fieldnames: list[str], filename: str):
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(rows)
+    body = buf.getvalue().encode("utf-8-sig")  # BOM so Excel opens UTF-8 cleanly
+    start_response("200 OK", [
+        ("Content-Type", "text/csv; charset=utf-8"),
+        ("Content-Length", str(len(body))),
+        ("Content-Disposition", f'attachment; filename="{filename}"'),
+    ])
+    return [body]
 
-    if status == "SKIPPED":
-        return {
-            "category": category, "status": "OK", "mode": "rule",
-            "classification_reason": "Not a document comparison request.",
-            "review_reason": None, "has_defect": False, "defect_fields": [],
-            "human_reviewed": False,
-        }
 
-    if "comparison" not in result:
-        # Extraction-level failure: missing/unreadable/unpairable attachments.
-        reason = _REVIEW_REASON_MAP.get(result.get("reason"), "missing_value")
-        return {
-            "category": category, "status": "NEEDS_REVIEW", "mode": "llm",
-            "classification_reason": "Document comparison request.",
-            "review_reason": reason, "review_detail": result.get("detail"),
-            "has_defect": False, "defect_fields": [], "human_reviewed": False,
-        }
+def _differences_text(report: dict) -> str:
+    """Human-readable explanation of what differs, mirroring
+    comparator.compare_documents()'s own ``differences`` dict
+    ({field: {"si": ..., "bl": ...}}) — built from the live-verified
+    ``rows`` when available, since submission.json's baseline only stores
+    field *names*, not the actual SI/BL values that differed.
+    """
+    rows = report.get("rows")
+    if rows:
+        parts = [
+            f"{row['field']}: SI='{row['si']}' vs BL='{row['bl']}'"
+            for row in rows if row.get("result") == "MISMATCH"
+        ]
+        if parts:
+            return "; ".join(parts)
+    defect_fields = report.get("defect_fields") or []
+    if defect_fields:
+        return f"{', '.join(defect_fields)} (re-verify this email to see the actual SI/BL values)"
+    return ""
 
-    comparison = result["comparison"]
-    si_data = result.get("si") or {}
-    bl_data = result.get("bl") or {}
+
+def _report_from_submission_entry(sub: dict) -> dict:
+    """A submission.json row (no SI/BL detail) -> the dashboard's report shape."""
+    return {
+        "category": sub.get("category", "GENERAL"),
+        "status": sub.get("status", "OK"),
+        "mode": "precomputed",
+        "classification_reason": "From a previously completed batch run.",
+        "review_reason": sub.get("review_reason"),
+        "has_defect": bool(sub.get("has_defect", False)),
+        "defect_fields": sub.get("defect_fields", []),
+        "human_reviewed": False,
+    }
+
+
+def _live_verify(email: dict) -> dict:
+    """Run one email through the pipeline, returning the dashboard's report
+    shape with the full per-field SI/BL table when the compare stage ran.
+
+    Mirrors main.process_email()'s own control flow (reusing its helpers
+    directly) instead of calling process_email() itself, so classify/
+    extract/compare each run exactly once per email — process_email()
+    only returns the final submission shape, not the SI/BL detail this
+    dashboard's comparison table needs.
+    """
+    email_id = email.get("email_id") or email.get("id") or "<unknown>"
+
+    try:
+        cls = pipeline.classify_email(email)
+    except Exception:
+        cls = {"email_id": email_id, "category": "BL_COMPARISON", "should_process": True}
+    category = cls.get("category", "GENERAL")
+
+    if category != "BL_COMPARISON" or not cls.get("should_process"):
+        sub = pipeline._submission_for_non_bl(category)
+        return {**_report_from_submission_entry(sub), "mode": "rule",
+                "classification_reason": "Not a document comparison request."}
+
+    attachments = email.get("attachments") or []
+    if not attachments:
+        body_lower = (email.get("body") or "").lower()
+        cues = ("attachments appear to have been dropped", "attachment appears to have been dropped",
+                "attachments missing", "attachment missing", "missing attachment",
+                "still missing", "not attached")
+        if not any(cue in body_lower for cue in cues):
+            sub = pipeline._submission_for_non_bl(category)
+            return {**_report_from_submission_entry(sub), "mode": "rule",
+                    "classification_reason": "Comparison request with no attachments expected."}
+
+    try:
+        ext = pipeline.extract(email, cls, attachment_root=str(pipeline.BUNDLE_DIR))
+    except Exception as exc:
+        ext = {"email_id": email_id, "parse_status": "failed",
+               "reason": "extraction_error", "detail": str(exc), "si": None, "bl": None}
+
+    if ext is None:
+        sub = pipeline._submission_for_non_bl(category)
+        return {**_report_from_submission_entry(sub), "mode": "llm",
+                "classification_reason": "Document comparison request."}
+
+    parse_status = ext.get("parse_status")
+    if parse_status == "failed" or ext.get("si") is None or ext.get("bl") is None:
+        if ext.get("reason") == "missing_attachment" and pipeline._is_bl_request_email(email):
+            sub = {"category": category, "status": "OK", "review_reason": None,
+                   "defect_fields": [], "has_defect": False}
+        else:
+            sub = pipeline._submission_for_extract_failure(ext)
+        return {**_report_from_submission_entry(sub), "mode": "llm",
+                "classification_reason": "Document comparison request.",
+                "review_detail": ext.get("detail")}
+
+    si_cmp = pipeline._adapt_for_comparator(ext["si"])
+    bl_cmp = pipeline._adapt_for_comparator(ext["bl"])
+    try:
+        cmp_result = pipeline.compare_documents(si_cmp, bl_cmp)
+    except Exception:
+        cmp_result = {"status": "NEEDS_REVIEW", "review_reason": "unreadable",
+                      "has_defect": False, "defect_fields": [], "missing_fields": []}
+
+    sub = pipeline._submission_for_comparison(category, cmp_result)
+    si_raw = (ext.get("si") or {}).get("raw") or {}
+    bl_raw = (ext.get("bl") or {}).get("raw") or {}
     rows = [{
         "field": field,
-        "si": si_data.get(field),
-        "bl": bl_data.get(field),
-        "si_evidence": (si_data.get("raw") or {}).get(field),
-        "bl_evidence": (bl_data.get("raw") or {}).get(field),
-        "result": ("MISMATCH" if field in comparison["defect_fields"]
-                    else "REVIEW" if field in comparison["missing_fields"]
+        "si": si_cmp.get(field),
+        "bl": bl_cmp.get(field),
+        "si_evidence": si_raw.get(field),
+        "bl_evidence": bl_raw.get(field),
+        "result": ("MISMATCH" if field in cmp_result.get("defect_fields", [])
+                    else "REVIEW" if field in cmp_result.get("missing_fields", [])
                     else "MATCH"),
     } for field in constants.COMPARISON_FIELDS]
 
-    return {
-        "category": category, "status": comparison["status"], "mode": "llm",
-        "classification_reason": "Document comparison request.",
-        "review_reason": comparison.get("review_reason"),
-        "has_defect": comparison.get("has_defect", False),
-        "defect_fields": comparison.get("defect_fields", []),
-        "rows": rows,
-        "documents": {"SI": {"fields": si_data}, "BL": {"fields": bl_data}},
-        "human_reviewed": False,
-    }
+    report = _report_from_submission_entry(sub)
+    report.update(
+        mode="llm",
+        classification_reason="Document comparison request.",
+        rows=rows,
+        documents={"SI": {"fields": si_cmp}, "BL": {"fields": bl_cmp}},
+    )
+    return report
 
 
 class Application:
@@ -106,6 +207,43 @@ class Application:
         self.reports: dict[str, dict] = {}
         self.job = {"running": False, "completed": 0, "total": 0, "error": None}
         self._lock = threading.Lock()
+        self._load_submission_baseline()
+        self._load_cache()
+
+    def _load_submission_baseline(self) -> None:
+        if not SUBMISSION_PATH.exists():
+            return
+        try:
+            submission = json.loads(SUBMISSION_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        for email_id, sub in submission.items():
+            try:
+                self.reports[email_id] = _report_from_submission_entry(sub)
+            except Exception:
+                continue
+
+    def _load_cache(self) -> None:
+        if not CACHE_PATH.exists():
+            return
+        try:
+            cached = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        for email_id, report in cached.items():
+            if email_id in self.index:
+                self.reports[email_id] = report
+
+    def _persist_cache(self) -> None:
+        """Best-effort write-back so a warm instance survives a quick restart.
+
+        Not a substitute for the submission.json baseline — Cloud Run's disk
+        doesn't survive a cold start, only what's baked into the image does.
+        """
+        try:
+            CACHE_PATH.write_text(json.dumps(self.reports, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
 
     # ------------------------------------------------------------------
     # Background processing
@@ -119,7 +257,7 @@ class Application:
                 if email is None:
                     continue
                 try:
-                    report = _to_report(pipeline.process_email(email))
+                    report = _live_verify(email)
                 except Exception as exc:
                     report = {
                         "category": "GENERAL", "status": "NEEDS_REVIEW", "mode": "error",
@@ -135,6 +273,7 @@ class Application:
         finally:
             with self._lock:
                 self.job["running"] = False
+            self._persist_cache()
 
     # ------------------------------------------------------------------
     # WSGI routing
@@ -155,6 +294,8 @@ class Application:
             return self._run_endpoint(environ, start_response)
         if path == "/api/export" and method == "GET":
             return self._export(start_response)
+        if path == "/api/export.csv" and method == "GET":
+            return self._export_csv(environ, start_response)
         if path == "/api/check-score" and method == "POST":
             return self._check_score(environ, start_response)
 
@@ -178,6 +319,7 @@ class Application:
             "emails": emails,
             "job": job,
             "cloud_configured": bool(os.getenv("GEMINI_API_KEY")) and bool(os.getenv("OPENAI_API_KEY")),
+            "read_only": READ_ONLY,
             "categories": ["BL_COMPARISON", "SI_REQUEST", "INVOICE_QUERY", "GENERAL", "SPAM"],
             "fields": list(constants.COMPARISON_FIELDS),
         }
@@ -221,6 +363,12 @@ class Application:
         return [data]
 
     def _run_endpoint(self, environ, start_response):
+        if READ_ONLY:
+            return _json_response(
+                start_response,
+                {"error": "this deployment is read-only; results were pre-computed and verification is disabled here"},
+                "403 Forbidden",
+            )
         try:
             size = int(environ.get("CONTENT_LENGTH") or 0)
         except ValueError:
@@ -261,6 +409,38 @@ class Application:
 
     def _export(self, start_response):
         return _json_response(start_response, self._build_submission())
+
+    def _export_csv(self, environ, start_response):
+        qs = parse_qs(environ.get("QUERY_STRING", ""))
+        only_id = (qs.get("email_id") or [None])[0]
+
+        fieldnames = ["email_id", "subject", "category", "status",
+                      "review_reason", "has_defect", "defect_fields", "differences"]
+        rows = []
+        for e in self.emails:
+            email_id = e["email_id"]
+            if only_id and email_id != only_id:
+                continue
+            report = self.reports.get(email_id) or {
+                "category": "GENERAL", "status": "OK", "review_reason": None,
+                "has_defect": False, "defect_fields": [],
+            }
+            rows.append({
+                "email_id": email_id,
+                "subject": e.get("subject", ""),
+                "category": report.get("category", "GENERAL"),
+                "status": report.get("status", "OK"),
+                "review_reason": report.get("review_reason") or "",
+                "has_defect": report.get("has_defect", False),
+                "defect_fields": ", ".join(report.get("defect_fields") or []),
+                "differences": _differences_text(report),
+            })
+
+        if only_id and not rows:
+            return _json_response(start_response, {"error": "unknown email_id"}, "404 Not Found")
+
+        filename = f"{only_id}.csv" if only_id else "submission.csv"
+        return _csv_response(start_response, rows, fieldnames, filename)
 
     def _check_score(self, environ, start_response):
         try:

@@ -1,0 +1,25 @@
+# Never let the organizer-only package (contains ground_truth.json, the
+# answer key) end up inside a built image.
+sdoc-hackathon-docker/
+
+.git/
+.gitignore
+Dockerfile
+.dockerignore
+
+# Secrets — set GEMINI_API_KEY / OPENAI_API_KEY as Cloud Run env vars
+# at deploy time instead, never bake them into the image.
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.vscode/
+.idea/
+*.log

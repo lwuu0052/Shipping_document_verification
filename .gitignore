@@ -37,3 +37,6 @@ env/
 # (Logs & Test outputs)
 # ==========================================
 *.log
+
+# Dashboard's own live-verify cache — never the shared submission.json
+solution/frontend/.dashboard_cache.json
