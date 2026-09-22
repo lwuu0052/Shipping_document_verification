@@ -28,7 +28,7 @@ import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote
 
 SOLUTION_ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_ROOT = SOLUTION_ROOT.parent / "sdoc-hackathon-bundle"
@@ -72,6 +72,26 @@ def _csv_response(start_response, rows: list[dict], fieldnames: list[str], filen
         ("Content-Disposition", f'attachment; filename="{filename}"'),
     ])
     return [body]
+
+
+def _fetch_identity_token(audience: str) -> str | None:
+    """A Google-signed ID token scoped to ``audience``, fetched from the
+    GCE/Cloud Run metadata server (only reachable when actually running on
+    GCP). Lets JiaBao call an IAM-gated Cloud Run service (the self-eval
+    server, deployed with --no-allow-unauthenticated so its ground-truth
+    data isn't public). Returns None outside GCP — e.g. local dev — so
+    calling a plain local eval server still works unauthenticated.
+    """
+    url = (
+        "http://metadata.google.internal/computeMetadata/v1/instance/"
+        f"service-accounts/default/identity?audience={quote(audience, safe='')}"
+    )
+    try:
+        req = urllib.request.Request(url, headers={"Metadata-Flavor": "Google"})
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            return resp.read().decode().strip()
+    except Exception:
+        return None
 
 
 def _differences_text(report: dict) -> str:
@@ -454,10 +474,15 @@ class Application:
             payload = {}
         eval_url = str(payload.get("eval_url") or "http://localhost:8080").rstrip("/")
 
+        headers = {"Content-Type": "application/json"}
+        token = _fetch_identity_token(eval_url)
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
         body = json.dumps(self._build_submission()).encode("utf-8")
         req = urllib.request.Request(
             eval_url + "/submit", data=body,
-            headers={"Content-Type": "application/json"}, method="POST",
+            headers=headers, method="POST",
         )
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
